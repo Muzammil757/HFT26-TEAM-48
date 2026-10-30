@@ -10,7 +10,10 @@ PROVIDERS = [
     ("Ollama",        ["localhost", "127.0.0.1"],             [11434], ["/api/generate", "/api/chat"]),
     ("LM Studio",     ["localhost", "127.0.0.1"],             [1234],  ["/v1/"]),
 ]
-APPROVED = {"OpenAI"}  # the org's sanctioned AI provider for the demo; everything else is SHADOW
+# Sanctioned providers; everything else is SHADOW. OpenAI is the org's approved AI
+# provider for the demo; Featherless is our own triage provider (analyzer.py), so the
+# server's own analyze calls must not show up as shadow traffic.
+APPROVED = {"OpenAI", "Featherless"}
 
 LOCAL_HOSTS = {"localhost", "127.0.0.1"}
 LOCAL_LLM_PORTS = {11434: "Ollama", 1234: "LM Studio"}
