@@ -3,6 +3,7 @@
 import json
 import os
 import sys
+import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -62,7 +63,30 @@ async def lifespan(app: FastAPI):
     init_db()
     if os.environ.get("SEED_MOCK") == "1":
         seed_from_file(MOCK_DATA)  # no-op once the DB has data
+
+    collector_stop = threading.Event()
+    collector_thread = None
+    if os.environ.get("COLLECTOR_ENABLED", "1") != "0":
+        try:
+            from collector import start_collector
+
+            collector_thread = start_collector(
+                lambda events: process_events(events, origin="collector"),
+                interval=3.0,
+                stop_event=collector_stop,
+            )
+            print("[collector] Live connection collector started (COLLECTOR_ENABLED=0 to disable)")
+        except Exception as exc:  # never block startup on the collector
+            print(f"[collector] Not started: {type(exc).__name__}: {exc}")
+    else:
+        print("[collector] Disabled by COLLECTOR_ENABLED=0")
+
     yield
+
+    if collector_thread is not None:
+        collector_stop.set()
+        collector_thread.join(timeout=5)
+        print("[collector] Stopped" if not collector_thread.is_alive() else "[collector] Did not stop within 5s")
 
 
 app = FastAPI(title="ShadowGuard AI", version="0.1.0", lifespan=lifespan)
@@ -139,15 +163,30 @@ def health() -> dict:
 
 @app.post("/api/ingest")
 def ingest(events: list[Any] = Body(...)) -> dict:
+    return process_events(events)
+
+
+# Serialises ingests: the collector thread and request handlers both write, and the
+# session upsert is read-then-write.
+_ingest_lock = threading.Lock()
+
+
+def process_events(events: list[Any], origin: str = "api") -> dict:
     """Classify, scan and redact each event, save its metadata and findings, then
     re-correlate every session the batch touched using that session's stored history.
 
+    Shared by POST /api/ingest and the live collector (in-process, no HTTP).
     Events are validated one by one (models.validate_event): a malformed event is
     skipped with a warning instead of failing the whole batch.
     Re-correlating from the DB lets a chain build up across single-event batches
     (demo_agent.py), and upserting by session keeps one incident per session.
     """
-    print(f"[ingest] Received {len(events)} events")
+    with _ingest_lock:
+        return _process_events(events, origin)
+
+
+def _process_events(events: list[Any], origin: str) -> dict:
+    print(f"[ingest] Received {len(events)} events" + (f" from {origin}" if origin != "api" else ""))
 
     skipped = 0
     processed = 0
@@ -168,6 +207,10 @@ def ingest(events: list[Any] = Body(...)) -> dict:
                     f["event_id"] = event.event_id
                 event.payload = mask_secrets(event.payload, findings)
             insert_event(event, findings)  # metadata + redacted findings only, payload NOT stored
+            if origin == "collector":
+                status = "approved" if event.sanctioned else "SHADOW" if event.provider else "not AI"
+                print(f"[collector] {event.source} (pid {event.pid}) -> {event.destination}:{event.dst_port}"
+                      f" = {event.provider or '-'} [{status}]")
         except Exception as exc:
             print(f"[ingest] WARNING skipped event {event.event_id}: {type(exc).__name__}: {exc}")
             skipped += 1

@@ -3,6 +3,7 @@
 Usage:
     python demo_reset.py                         # delete shadowguard.db only
     python demo_reset.py --load 01 02 03 04 06   # delete, wait for the server, load files
+    python demo_reset.py --fresh --load 01 02 03 04 06   # regenerate data first (recent timestamps)
 
 Numbers map to ../demo_data/0N_*.jsonl. File 05 is normally NOT preloaded:
 demo_agent.py plays it live on stage.
@@ -12,6 +13,7 @@ startup). With --load, start it again when prompted; loading begins once it answ
 """
 
 import argparse
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -29,6 +31,7 @@ from models import DB_PATH  # noqa: E402
 
 HEALTH_URL = "http://127.0.0.1:8000/api/health"
 DEFAULT_DATA_DIR = Path(__file__).parent.parent / "demo_data"
+GENERATOR = Path(__file__).parent / "generate_data.py"
 
 
 def server_up() -> bool:
@@ -70,14 +73,23 @@ def main() -> None:
     parser.add_argument("--load", nargs="+", metavar="NN", help="scenario numbers to load, e.g. 01 02 03 04 06")
     parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR, help="folder with 0N_*.jsonl files")
     parser.add_argument("--wait", type=int, default=120, help="seconds to wait for the server (default 120)")
+    parser.add_argument("--fresh", action="store_true",
+                        help="run generate_data.py first so demo timestamps are recent "
+                             "(rewrites demo_data/*.jsonl; don't commit them)")
     args = parser.parse_args()
+
+    if server_up():
+        sys.exit("The ShadowGuard server is running. Stop it (Ctrl+C in its terminal), then rerun this.")
+    if args.fresh:
+        print("Regenerating demo data with recent timestamps...", flush=True)
+        result = subprocess.run([sys.executable, str(GENERATOR)], cwd=GENERATOR.parent)
+        if result.returncode != 0:
+            sys.exit("generate_data.py failed (see above); database left untouched.")
+        print()
 
     files = resolve_files(args.load, args.data_dir) if args.load else []
     if any(f.name.startswith("05_") for f in files):
         print("Note: 05 is normally played live by demo_agent.py, but loading it as asked.")
-
-    if server_up():
-        sys.exit("The ShadowGuard server is running. Stop it (Ctrl+C in its terminal), then rerun this.")
     delete_db()
     if not files:
         print("Done. Start the server with: python main.py")
