@@ -127,9 +127,44 @@ npm run dev                     # http://127.0.0.1:5173
 
 PowerShell: `$env:COLLECTOR_ENABLED="0"; python main.py` · bash: `COLLECTOR_ENABLED=0 python main.py`
 
+## Run
+
+### One command (recommended for the demo)
+
+From the repo root, after the one-time setup above:
+
+```powershell
+# Windows
+powershell -ExecutionPolicy Bypass -File .\start_demo.ps1                 # collector on
+powershell -ExecutionPolicy Bypass -File .\start_demo.ps1 -NoCollector    # collector off
+powershell -ExecutionPolicy Bypass -File .\stop_demo.ps1                  # stop both servers
+```
+
+```bash
+# macOS / Linux
+./start_demo.sh                  # or: ./start_demo.sh --no-collector
+```
+
+The launcher:
+1. Frees ports 8000 and 5173.
+2. Regenerates the demo data with recent timestamps and resets the database.
+3. Starts the backend in its own window and waits for `/api/health`.
+4. Loads scenarios 01–04 and 06, then restores `demo_data/` so the repo stays clean.
+5. Starts the frontend in its own window.
+6. Prints the URLs and the active analyzer engine.
+
+Both windows keep running until you close them or run `stop_demo.ps1`.
+
+- Dashboard: **http://127.0.0.1:5173**
+- API: **http://127.0.0.1:8000** (interactive docs at `/docs`)
+
+The servers bind to `127.0.0.1` on purpose. Use that address rather than `localhost`, which on some Windows machines resolves to IPv6 first.
+
+Then play the hero scenario live: `cd backend` and `python demo_agent.py`.
+
 ## Demo routine
 
-Before going on stage (and before every rehearsal):
+Manual alternative to the launcher, before going on stage (and before every rehearsal):
 
 ```bash
 cd backend
