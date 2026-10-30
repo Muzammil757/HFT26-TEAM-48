@@ -9,7 +9,14 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from correlator import correlate_events
 from detectors import mask_secrets, scan_payload
-from models import Incident, RawEvent, fetch_incidents, init_db, seed_from_file
+from models import (
+    Incident,
+    RawEvent,
+    fetch_incidents,
+    init_db,
+    insert_incident,
+    seed_from_file,
+)
 
 MOCK_DATA = Path(__file__).parent.parent / "frontend" / "mock_incidents.json"
 
@@ -38,10 +45,8 @@ def get_incidents() -> list[Incident]:
 
 @app.post("/api/ingest")
 def ingest(events: list[RawEvent]) -> dict:
-    """Accept a batch of raw proxy log events, scan visible payloads, and correlate.
-
-    TODO: pass findings to the correlator and persist incidents
-    via models.insert_incident().
+    """Accept a batch of raw proxy log events, scan visible payloads,
+    correlate them into incidents, and persist those incidents.
     """
     print(f"[ingest] Received {len(events)} events")
 
@@ -51,7 +56,10 @@ def ingest(events: list[RawEvent]) -> dict:
             findings_by_event[event.event_id] = scan_payload(event.payload)
             event.payload = mask_secrets(event.payload)
 
-    incidents = correlate_events(events)
+    incidents = correlate_events(events, findings_by_event)
+    for incident in incidents:
+        insert_incident(incident)
+    print(f"[ingest] Saved {len(incidents)} incidents")
 
     return {"status": "success", "processed": len(events)}
 

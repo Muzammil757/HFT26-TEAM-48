@@ -1,10 +1,14 @@
 """Event correlation for ShadowGuard AI."""
 
+from models import Incident, RawEvent
 
-def correlate_events(events: list) -> list[dict]:
-    """Group related raw events into incidents.
 
-    Each incident should match the Incident schema.
+def correlate_events(
+    events: list[RawEvent], findings_by_event: dict[str, list[dict]]
+) -> list[Incident]:
+    """Group related raw events and their findings into incidents.
+
+    findings_by_event maps event_id -> findings from detectors.scan_payload().
     TODO: implement correlation logic.
     """
     return []
