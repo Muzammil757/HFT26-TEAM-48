@@ -4,8 +4,10 @@ import {
   Activity,
   AlertTriangle,
   ArrowUpRight,
+  BarChart3,
   Bot,
   CircleAlert,
+  Clock3,
   ShieldCheck,
   ShieldOff,
 } from "lucide-react";
@@ -19,168 +21,99 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { getStats, getIncidents } from "../api";
+import { getIncidents, getStats } from "../api";
 import usePolling from "../hooks/usePolling";
 import {
+  Card,
   ChainBadge,
-  LivePill,
+  CountUp,
+  EmptyState,
   PageHeader,
   PageShell,
+  Ring,
   ScoreMeter,
-  SectionHeader,
   SeverityBadge,
+  Skeleton,
+  Sparkline,
+  TOKENS,
+  buildTimeline,
   formatClock,
   formatDateTime,
+  formatNumber,
   severityOf,
   useHighlights,
 } from "../components/ui.jsx";
 
-const numberFormat = new Intl.NumberFormat("en-IN");
-const MINUTE = 60_000;
-const MAX_BUCKETS = 60;
+const SPARK_POINTS = 30;
 
-function number(value) {
-  return numberFormat.format(Number(value) || 0);
-}
-
-function incidentList(data) {
-  if (Array.isArray(data)) return data;
-  if (Array.isArray(data?.incidents)) return data.incidents;
-  return [];
-}
-
-/**
- * Turn the sparse per-minute timeline into continuous buckets (zero where nothing
- * happened) from the first minute up to now, so gaps read as gaps. Buckets widen
- * beyond one minute if the span would exceed MAX_BUCKETS bars.
- */
-function buildTimeline(rows) {
-  const points = rows
-    .map((row) => ({
-      t: Date.parse(row.minute),
-      requests: Number(row.requests) || 0,
-      incidents: Number(row.incidents) || 0,
-    }))
-    .filter((p) => !Number.isNaN(p.t))
-    .sort((a, b) => a.t - b.t);
-  if (points.length === 0) return [];
-
-  const first = points[0].t;
-  const lastData = points[points.length - 1].t;
-  const nowMinute = Math.floor(Date.now() / MINUTE) * MINUTE;
-  // Extend to the current minute when the data is recent, so live activity
-  // appears on the right edge.
-  const last = nowMinute > lastData && nowMinute - lastData < 3 * 60 * MINUTE ? nowMinute : lastData;
-
-  const minutes = Math.round((last - first) / MINUTE) + 1;
-  const step = Math.max(1, Math.ceil(minutes / MAX_BUCKETS)) * MINUTE;
-  const buckets = new Map();
-  for (let t = first; t <= last; t += step) {
-    buckets.set(t, { t, requests: 0, incidents: 0 });
-  }
-  for (const p of points) {
-    const bucket = buckets.get(first + Math.floor((p.t - first) / step) * step);
-    if (bucket) {
-      bucket.requests += p.requests;
-      bucket.incidents += p.incidents;
-    }
-  }
-  return [...buckets.values()];
-}
-
-function LoadingState() {
+// state: "loading" (skeleton), "unavailable" (backend down, nothing cached) or "ready".
+function HeroCard({ label, icon: Icon, tone, state, value, valueClass = "text-fg", aside, footer }) {
   return (
-    <div className="flex h-[220px] items-center justify-center gap-2 text-sm text-zinc-500">
-      <span className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-700 border-t-cyan-400" />
-      Loading...
-    </div>
-  );
-}
-
-function ErrorState({ message = "Unable to load this data." }) {
-  return (
-    <div
-      role="alert"
-      className="flex h-[220px] items-center justify-center gap-2 px-4 text-center text-sm text-red-400"
-    >
-      <CircleAlert size={16} />
-      {message}
-    </div>
-  );
-}
-
-function EmptyState({ message }) {
-  return (
-    <div className="flex h-[220px] items-center justify-center px-4 text-center text-sm text-zinc-500">
-      {message}
-    </div>
-  );
-}
-
-function StatCard({ label, value, description, icon: Icon, tone }) {
-  const tones = {
-    cyan: "bg-cyan-400/10 text-cyan-400",
-    red: "bg-red-400/10 text-red-400",
-    amber: "bg-amber-400/10 text-amber-400",
-    violet: "bg-violet-400/10 text-violet-400",
-  };
-
-  return (
-    <div className="panel min-w-0 p-4">
-      <div className="flex items-start justify-between gap-2">
-        <p className="text-xs font-medium text-zinc-400">{label}</p>
-        <span className={`rounded-lg p-2 ${tones[tone]}`}>
-          <Icon size={16} />
-        </span>
+    <div className="card flex h-40 min-w-0 flex-col p-4">
+      <div className="flex items-center justify-between gap-2">
+        <p className="eyebrow">{label}</p>
+        <Icon size={16} className={tone} />
       </div>
-      <p className="tabular mt-2 text-2xl font-semibold tracking-tight text-zinc-50">
-        {value}
-      </p>
-      <p className="mt-1 text-xs text-zinc-500">{description}</p>
+      <div className="mt-2 flex min-h-12 items-center justify-between gap-2">
+        {state === "loading" ? (
+          <Skeleton className="h-10 w-24" />
+        ) : state === "unavailable" ? (
+          <p className="text-display font-semibold text-subtle">—</p>
+        ) : (
+          <p className={`text-display font-semibold tracking-tight ${valueClass}`}>{value}</p>
+        )}
+        {state === "ready" && aside}
+      </div>
+      <div className="mt-auto h-8">
+        {state === "loading" ? (
+          <Skeleton className="h-8 w-full" />
+        ) : state === "unavailable" ? (
+          <p className="text-xs text-subtle">Waiting for the backend</p>
+        ) : (
+          footer
+        )}
+      </div>
     </div>
   );
 }
 
 function ChartTooltip({ active, payload, label, labelFormatter }) {
   if (!active || !payload?.length) return null;
-
   return (
-    <div className="rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 shadow-xl">
-      <p className="mb-1.5 text-xs text-zinc-400">
-        {labelFormatter ? labelFormatter(label) : label}
-      </p>
+    <div className="rounded-lg border border-line-strong bg-raised px-3 py-2 shadow-[var(--shadow-raised)]">
+      <p className="mb-1 text-xs text-muted">{labelFormatter ? labelFormatter(label) : label}</p>
       {payload.map((entry) => (
-        <div
-          key={entry.dataKey}
-          className="flex items-center justify-between gap-5 py-0.5 text-xs"
-        >
+        <div key={entry.dataKey} className="flex items-center justify-between gap-6 text-xs">
           <span style={{ color: entry.color }}>{entry.name}</span>
-          <span className="tabular font-medium text-zinc-100">
-            {number(entry.value)}
-          </span>
+          <span className="mono font-medium text-fg">{formatNumber(entry.value)}</span>
         </div>
       ))}
     </div>
   );
 }
 
-const axisTick = { fill: "#a1a1aa", fontSize: 11 };
-const legendStyle = { fontSize: "11px", color: "#a1a1aa" };
+const axisTick = { fill: TOKENS.muted, fontSize: 12, fontFamily: "Inter, sans-serif" };
+const legendStyle = { fontSize: "12px", color: TOKENS.muted };
+
+function ChartSkeleton() {
+  return (
+    <div className="flex h-[232px] items-end gap-2 px-6 pb-6 pt-4">
+      {[40, 70, 30, 90, 55, 20, 65, 45].map((h, i) => (
+        <Skeleton key={i} className="flex-1" style={{ height: `${h}%` }} />
+      ))}
+    </div>
+  );
+}
 
 export default function Overview() {
-  const {
-    data: stats,
-    error: statsError,
-    loading: statsLoading,
-  } = usePolling(getStats, 3000);
-
+  const { data: stats, error: statsError, loading: statsLoading } = usePolling(getStats, 3000, "stats");
   const {
     data: incidentsData,
     error: incidentsError,
     loading: incidentsLoading,
-  } = usePolling(getIncidents, 3000);
+  } = usePolling(getIncidents, 3000, "incidents");
 
-  const incidents = useMemo(() => incidentList(incidentsData), [incidentsData]);
+  const incidents = useMemo(() => (Array.isArray(incidentsData) ? incidentsData : []), [incidentsData]);
   const highlighted = useHighlights(
     incidentsData == null ? null : incidents,
     (incident) => incident.incident_id,
@@ -189,35 +122,44 @@ export default function Overview() {
 
   const providerData = useMemo(() => {
     if (!Array.isArray(stats?.by_provider)) return [];
-
     const grouped = new Map();
-
     for (const item of stats.by_provider) {
       const provider = item.provider || "Unknown";
-      const current = grouped.get(provider) || {
-        provider,
-        sanctioned: 0,
-        shadow: 0,
-      };
-
-      if (item.sanctioned === false) {
-        current.shadow += Number(item.count) || 0;
-      } else {
-        current.sanctioned += Number(item.count) || 0;
-      }
-
+      const current = grouped.get(provider) || { provider, sanctioned: 0, shadow: 0 };
+      if (item.sanctioned === false) current.shadow += Number(item.count) || 0;
+      else current.sanctioned += Number(item.count) || 0;
       grouped.set(provider, current);
     }
-
-    return [...grouped.values()].sort(
-      (a, b) => b.sanctioned + b.shadow - (a.sanctioned + a.shadow),
-    );
+    return [...grouped.values()].sort((a, b) => b.sanctioned + b.shadow - (a.sanctioned + a.shadow));
   }, [stats]);
 
-  const timelineData = useMemo(
-    () => (Array.isArray(stats?.timeline) ? buildTimeline(stats.timeline) : []),
-    [stats],
-  );
+  const timelineData = useMemo(() => buildTimeline(stats?.timeline), [stats]);
+
+  // Sparklines from the same timeline: running totals of requests and incidents
+  // over the whole range (always a meaningful shape, even when recent minutes are
+  // quiet), sampled to SPARK_POINTS. The timeline has no per-minute shadow series.
+  const sparks = useMemo(() => {
+    let requests = 0;
+    let incidentCount = 0;
+    const cumulative = timelineData.map((b) => ({
+      requests: (requests += b.requests),
+      incidents: (incidentCount += b.incidents),
+    }));
+    const step = Math.max(1, Math.ceil(cumulative.length / SPARK_POINTS));
+    const sampled = cumulative.filter((_, i) => i % step === 0 || i === cumulative.length - 1);
+    // Start from zero so the line always shows the rise, even if everything
+    // happened in the first bucket.
+    return {
+      requests: [0, ...sampled.map((p) => p.requests)],
+      incidents: [0, ...sampled.map((p) => p.incidents)],
+    };
+  }, [timelineData]);
+
+  const providerSplit = useMemo(() => {
+    const shadow = providerData.filter((p) => p.shadow > 0).map((p) => p.provider);
+    const approved = providerData.filter((p) => p.shadow === 0).map((p) => p.provider);
+    return { shadow, approved };
+  }, [providerData]);
 
   const topIncidents = useMemo(
     () =>
@@ -232,229 +174,222 @@ export default function Overview() {
     [incidents],
   );
 
-  const statsInitialLoading = statsLoading && stats == null;
-  const incidentsInitialLoading = incidentsLoading && incidentsData == null;
+  const statsPending = stats == null;
   const statsFailed = Boolean(statsError) && stats == null;
+  const incidentsPending = incidentsLoading && incidentsData == null;
   const incidentsFailed = Boolean(incidentsError) && incidentsData == null;
+  const bySeverity = stats?.incidents_by_severity || {};
+  const heroState = stats != null ? "ready" : statsFailed ? "unavailable" : "loading";
 
   return (
     <PageShell>
       <PageHeader
-        icon={ShieldCheck}
         title="Security Overview"
-        subtitle="AI usage, shadow traffic and security incidents on this machine"
-        actions={<LivePill />}
+        subtitle="Which processes talk to which AI providers, and what they leaked"
       />
 
-      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-        <StatCard
-          label="AI Requests"
-          value={statsInitialLoading || statsFailed ? "—" : number(stats?.ai_requests)}
-          description="Requests to detected AI providers"
+      {/* Hero strip */}
+      <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+        <HeroCard
+          label="AI requests"
           icon={Activity}
-          tone="cyan"
+          tone="text-accent"
+          state={heroState}
+          value={<CountUp value={stats?.ai_requests} />}
+          footer={<Sparkline values={sparks.requests} color={TOKENS.accent} />}
         />
-        <StatCard
-          label="Shadow AI Requests"
-          value={statsInitialLoading || statsFailed ? "—" : number(stats?.shadow_requests)}
-          description="Requests to unapproved providers"
+        <HeroCard
+          label="Shadow AI requests"
           icon={ShieldOff}
-          tone="red"
+          tone="text-shadow"
+          state={heroState}
+          value={<CountUp value={stats?.shadow_requests} />}
+          valueClass="text-shadow"
+          aside={<Ring part={stats?.shadow_requests || 0} total={stats?.ai_requests || 0} size={56} />}
+          footer={
+            <p className="flex items-center gap-2 text-xs text-muted">
+              <span className="h-2 w-2 rounded-full bg-shadow" />
+              Shadow AI share of all AI requests
+            </p>
+          }
         />
-        <StatCard
-          label="Open Incidents"
-          value={statsInitialLoading || statsFailed ? "—" : number(stats?.incidents_total)}
-          description="Correlated incidents, score 3 or higher"
+        <HeroCard
+          label="Open incidents"
           icon={AlertTriangle}
-          tone="amber"
+          tone="text-high"
+          state={heroState}
+          value={<CountUp value={stats?.incidents_total} />}
+          aside={
+            <div className="space-y-0.5 text-right text-xs">
+              {["critical", "high", "medium"].map((sev) => (
+                <p key={sev} className="flex items-center justify-end gap-1.5 text-muted">
+                  <span className="mono text-fg">{bySeverity[sev] || 0}</span>
+                  {severityOf(sev).label}
+                  <span className={`h-1.5 w-1.5 rounded-full ${severityOf(sev).bar}`} />
+                </p>
+              ))}
+            </div>
+          }
+          footer={<Sparkline values={sparks.incidents} color={TOKENS.high} />}
         />
-        <StatCard
-          label="Providers Detected"
-          value={statsInitialLoading || statsFailed ? "—" : number(stats?.providers_seen)}
-          description="Distinct AI providers observed"
+        <HeroCard
+          label="Providers detected"
           icon={Bot}
-          tone="violet"
+          tone="text-accent"
+          state={heroState}
+          value={<CountUp value={stats?.providers_seen} />}
+          aside={
+            <div className="space-y-0.5 text-right text-xs">
+              <p className="flex items-center justify-end gap-1.5 text-muted">
+                <span className="mono text-fg">{providerSplit.shadow.length}</span> shadow
+                <ShieldOff size={12} className="text-shadow" />
+              </p>
+              <p className="flex items-center justify-end gap-1.5 text-muted">
+                <span className="mono text-fg">{providerSplit.approved.length}</span> approved
+                <ShieldCheck size={12} className="text-approved" />
+              </p>
+            </div>
+          }
+          footer={
+            <div className="flex h-2 w-full overflow-hidden rounded-full bg-line">
+              {providerData.map((p) => (
+                <span
+                  key={p.provider}
+                  title={`${p.provider}: ${p.sanctioned + p.shadow} requests`}
+                  className={`h-full border-r border-card last:border-r-0 ${p.shadow > 0 ? "bg-shadow" : "bg-approved"}`}
+                  style={{ width: `${((p.sanctioned + p.shadow) / Math.max(1, stats?.ai_requests || 1)) * 100}%` }}
+                />
+              ))}
+            </div>
+          }
         />
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <section className="panel min-w-0 p-4">
-          <SectionHeader
-            title="AI Provider Traffic"
-            subtitle="Approved vs. shadow requests by provider"
-          />
-
-          {statsInitialLoading ? (
-            <LoadingState />
+        <Card title="AI provider traffic" subtitle="Approved vs. shadow requests per provider" icon={BarChart3}>
+          {statsPending && !statsFailed ? (
+            <ChartSkeleton />
           ) : statsFailed ? (
-            <ErrorState />
+            <EmptyState icon={CircleAlert} title="Statistics unavailable" hint="Waiting for the backend." className="h-[232px]" />
           ) : providerData.length === 0 ? (
-            <EmptyState message="No provider traffic recorded yet." />
+            <EmptyState icon={BarChart3} title="No AI traffic yet" hint="Load demo data or start the collector." className="h-[232px]" />
           ) : (
-            <div className="mt-3 h-[220px] w-full">
+            <div className="h-[232px] px-4 pb-4 pt-2">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={providerData}
-                  margin={{ top: 4, right: 8, left: -16, bottom: 0 }}
-                >
-                  <CartesianGrid stroke="#27272a" strokeDasharray="3 3" vertical={false} />
-                  <XAxis
-                    dataKey="provider"
-                    tick={axisTick}
-                    tickLine={false}
-                    axisLine={{ stroke: "#3f3f46" }}
-                    interval={0}
-                  />
-                  <YAxis
-                    allowDecimals={false}
-                    tick={{ ...axisTick, fill: "#71717a" }}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <Tooltip content={<ChartTooltip />} cursor={{ fill: "#27272a66" }} />
-                  <Legend verticalAlign="top" align="right" height={26} iconType="circle" wrapperStyle={legendStyle} />
-                  <Bar dataKey="sanctioned" name="Approved" stackId="traffic" fill="#22d3ee" maxBarSize={44} isAnimationActive={false} />
-                  <Bar dataKey="shadow" name="Shadow AI" stackId="traffic" fill="#f87171" radius={[3, 3, 0, 0]} maxBarSize={44} isAnimationActive={false} />
+                <BarChart data={providerData} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
+                  <CartesianGrid stroke={TOKENS.line} strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="provider" tick={axisTick} tickLine={false} axisLine={{ stroke: TOKENS.lineStrong }} interval={0} />
+                  <YAxis allowDecimals={false} tick={{ ...axisTick, fill: TOKENS.subtle }} tickLine={false} axisLine={false} />
+                  <Tooltip content={<ChartTooltip />} cursor={{ fill: "rgba(255,255,255,0.03)" }} />
+                  <Legend verticalAlign="top" align="right" height={28} iconType="circle" iconSize={8} wrapperStyle={legendStyle} />
+                  <Bar dataKey="sanctioned" name="Approved" stackId="t" fill={TOKENS.approved} maxBarSize={40} isAnimationActive={false} />
+                  <Bar dataKey="shadow" name="Shadow AI" stackId="t" fill={TOKENS.shadow} radius={[4, 4, 0, 0]} maxBarSize={40} isAnimationActive={false} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
           )}
-        </section>
+        </Card>
 
-        <section className="panel min-w-0 p-4">
-          <SectionHeader
-            title="Activity Timeline"
-            subtitle="Requests and new incidents per minute (local time)"
-          />
-
-          {statsInitialLoading ? (
-            <LoadingState />
+        <Card title="Activity timeline" subtitle="Requests and new incidents per minute, local time" icon={Clock3}>
+          {statsPending && !statsFailed ? (
+            <ChartSkeleton />
           ) : statsFailed ? (
-            <ErrorState />
+            <EmptyState icon={CircleAlert} title="Timeline unavailable" hint="Waiting for the backend." className="h-[232px]" />
           ) : timelineData.length === 0 ? (
-            <EmptyState message="No timeline activity available yet." />
+            <EmptyState icon={Clock3} title="No activity yet" className="h-[232px]" />
           ) : (
-            <div className="mt-3 h-[220px] w-full">
+            <div className="h-[232px] px-4 pb-4 pt-2">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={timelineData}
-                  margin={{ top: 4, right: 8, left: -16, bottom: 0 }}
-                  barGap={1}
-                >
-                  <CartesianGrid stroke="#27272a" strokeDasharray="3 3" vertical={false} />
-                  <XAxis
-                    dataKey="t"
-                    tickFormatter={formatClock}
-                    tick={axisTick}
-                    tickLine={false}
-                    axisLine={{ stroke: "#3f3f46" }}
-                    minTickGap={28}
-                  />
-                  <YAxis
-                    allowDecimals={false}
-                    tick={{ ...axisTick, fill: "#71717a" }}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <Tooltip
-                    content={<ChartTooltip labelFormatter={formatClock} />}
-                    cursor={{ fill: "#27272a66" }}
-                  />
-                  <Legend verticalAlign="top" align="right" height={26} iconType="circle" wrapperStyle={legendStyle} />
-                  <Bar dataKey="requests" name="Requests" fill="#22d3ee" radius={[2, 2, 0, 0]} maxBarSize={18} isAnimationActive={false} />
-                  <Bar dataKey="incidents" name="Incidents" fill="#f87171" radius={[2, 2, 0, 0]} maxBarSize={18} isAnimationActive={false} />
+                <BarChart data={timelineData} margin={{ top: 4, right: 8, left: -16, bottom: 0 }} barGap={1}>
+                  <CartesianGrid stroke={TOKENS.line} strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="t" tickFormatter={formatClock} tick={axisTick} tickLine={false} axisLine={{ stroke: TOKENS.lineStrong }} minTickGap={32} />
+                  <YAxis allowDecimals={false} tick={{ ...axisTick, fill: TOKENS.subtle }} tickLine={false} axisLine={false} />
+                  <Tooltip content={<ChartTooltip labelFormatter={formatClock} />} cursor={{ fill: "rgba(255,255,255,0.03)" }} />
+                  <Legend verticalAlign="top" align="right" height={28} iconType="circle" iconSize={8} wrapperStyle={legendStyle} />
+                  <Bar dataKey="requests" name="Requests" fill={TOKENS.accent} radius={[2, 2, 0, 0]} maxBarSize={16} isAnimationActive={false} />
+                  <Bar dataKey="incidents" name="Incidents" fill={TOKENS.high} radius={[2, 2, 0, 0]} maxBarSize={16} isAnimationActive={false} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
           )}
-        </section>
+        </Card>
       </div>
 
-      <section className="panel overflow-hidden">
-        <div className="border-b border-zinc-800 px-4 py-3">
-          <SectionHeader
-            title="Top Incidents"
-            subtitle="Highest risk scores across all sessions"
-            right={
-              <Link
-                to="/incidents"
-                className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-cyan-400 hover:text-cyan-300"
-              >
-                All incidents
-                <ArrowUpRight size={14} />
-              </Link>
-            }
-          />
-        </div>
-
-        {incidentsInitialLoading ? (
-          <LoadingState />
+      <Card
+        title="Top incidents"
+        subtitle="Highest risk scores across all sessions"
+        icon={AlertTriangle}
+        actions={
+          <Link to="/incidents" className="inline-flex items-center gap-1 text-xs font-medium text-accent hover:text-fg">
+            All incidents <ArrowUpRight size={14} />
+          </Link>
+        }
+      >
+        {incidentsPending ? (
+          <div className="divide-y divide-line">
+            {Array.from({ length: 3 }, (_, i) => (
+              <div key={i} className="flex items-center gap-4 px-6 py-4">
+                <Skeleton className="h-8 w-8" />
+                <div className="flex-1 space-y-2">
+                  <Skeleton className="h-4 w-2/3" />
+                  <Skeleton className="h-3 w-1/3" />
+                </div>
+                <Skeleton className="h-6 w-16" />
+              </div>
+            ))}
+          </div>
         ) : incidentsFailed ? (
-          <ErrorState message="Could not load incidents. Check that the backend is running." />
+          <EmptyState icon={CircleAlert} title="Incidents unavailable" hint="Waiting for the backend." />
         ) : topIncidents.length === 0 ? (
-          <EmptyState message="No incidents yet. Leaks and risky agent activity will appear here." />
+          <EmptyState
+            icon={ShieldCheck}
+            title="No incidents"
+            hint="Leaks of secrets or personal data and risky agent activity will appear here."
+          />
         ) : (
-          <div className="divide-y divide-zinc-800/80">
+          <div className="divide-y divide-line">
             {topIncidents.map((incident) => {
               const s = severityOf(incident.severity);
               const flash = highlighted.has(incident.incident_id);
-
               return (
                 <Link
                   key={incident.incident_id}
                   to={`/incidents/${encodeURIComponent(incident.incident_id)}`}
-                  className={`group flex items-center gap-3 px-4 py-3 transition-colors hover:bg-zinc-800/40 ${flash ? "flash" : ""}`}
+                  className={`group flex items-center gap-4 px-6 py-3 transition-colors duration-150 hover:bg-white/[0.02] ${flash ? "flash" : ""}`}
                 >
-                  <span className={`hidden rounded-lg border p-2 sm:inline-flex ${s.icon}`}>
+                  <span className={`rounded-lg border p-2 ${s.icon}`}>
                     <CircleAlert size={16} />
                   </span>
-
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <SeverityBadge severity={incident.severity} />
                       {incident.is_chain && <ChainBadge />}
-                      <span className="text-xs text-zinc-500">
-                        {formatDateTime(incident.timestamp)}
-                      </span>
+                      <span className="text-xs text-subtle">{formatDateTime(incident.timestamp)}</span>
                     </div>
-
-                    <p className="mt-1 truncate text-sm font-medium text-zinc-200 group-hover:text-cyan-300">
+                    <p className="mt-1 truncate text-sm font-medium text-fg group-hover:text-accent">
                       {incident.agent_context || "Security incident"}
                     </p>
-                    <p className="mt-0.5 truncate text-xs text-zinc-500">
-                      <span className="mono text-zinc-400">{incident.source}</span>
-                      {" → "}
-                      {incident.provider}
-                      {" · "}
+                    <p className="truncate text-xs text-subtle">
+                      <span className="mono text-muted">{incident.source}</span> → {incident.provider} ·{" "}
                       {Array.isArray(incident.findings) ? incident.findings.length : 0} findings
                     </p>
                   </div>
-
                   <div className="w-24 shrink-0 text-right">
-                    <p className={`mono text-lg font-semibold ${s.text}`}>
+                    <p className={`mono text-xl font-semibold ${s.text}`}>
                       <span key={incident.risk_score} className={flash ? "score-pop" : ""}>
-                        {Number(incident.risk_score) || 0}
+                        {incident.risk_score}
                       </span>
-                      <span className="text-xs font-normal text-zinc-500">/10</span>
+                      <span className="text-sm font-normal text-subtle">/10</span>
                     </p>
                     <ScoreMeter score={incident.risk_score} severity={incident.severity} className="mt-1" />
                   </div>
-
-                  <ArrowUpRight
-                    size={16}
-                    className="hidden shrink-0 text-zinc-600 group-hover:text-cyan-400 sm:block"
-                  />
+                  <ArrowUpRight size={16} className="shrink-0 text-subtle group-hover:text-accent" />
                 </Link>
               );
             })}
           </div>
         )}
-      </section>
-
-      <footer className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-zinc-600">
-        <span>ShadowGuard AI · Local security monitoring</span>
-        <span>Metadata-first · Payloads are never stored</span>
-      </footer>
+      </Card>
     </PageShell>
   );
 }

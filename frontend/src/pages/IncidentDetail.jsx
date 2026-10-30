@@ -2,26 +2,36 @@ import { useCallback, useRef, useState } from "react";
 import {
   Activity,
   ArrowLeft,
+  Ban,
   CheckCircle2,
   Cloud,
   FileText,
+  Fingerprint,
+  KeyRound,
   ListChecks,
   LoaderCircle,
+  Lock,
+  Power,
   Sparkles,
   Terminal,
   TriangleAlert,
+  UserCheck,
 } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { analyzeIncident, getIncident } from "../api.js";
 import usePolling from "../hooks/usePolling.js";
 import {
+  Card,
   ChainBadge,
-  LivePill,
+  EmptyState,
   PageShell,
+  PrivacyBadge,
   ProviderStatusBadge,
-  ScoreMeter,
+  RiskGauge,
   SeverityBadge,
+  Skeleton,
   formatDateTime,
+  formatGap,
   severityOf,
   useHighlights,
 } from "../components/ui.jsx";
@@ -34,11 +44,24 @@ const EVENT_TYPES = {
 };
 
 const CATEGORY_DOT = {
-  Credential: "bg-red-400",
-  PII: "bg-orange-400",
-  HighEntropy: "bg-violet-400",
-  AgentAction: "bg-fuchsia-400",
+  Credential: "bg-critical",
+  PII: "bg-high",
+  HighEntropy: "bg-medium",
+  AgentAction: "bg-accent",
 };
+
+// Shade per breakdown segment (same hue = same incident severity).
+const SEGMENT_OPACITY = [1, 0.72, 0.52, 0.38, 0.28, 0.2];
+
+// Icon for a remediation step, chosen from what the step asks for.
+function remediationIcon(step) {
+  if (/isolate|stop the process/i.test(step)) return Power;
+  if (/rotate|revoke|deactivate|invalidate|replace/i.test(step)) return KeyRound;
+  if (/block|egress|allowlist/i.test(step)) return Ban;
+  if (/restrict|deny list|permission|approval/i.test(step)) return Lock;
+  if (/notify|officer|dpo|deletion/i.test(step)) return UserCheck;
+  return CheckCircle2;
+}
 
 function parseAnalysis(value) {
   if (!value) return null;
@@ -49,35 +72,16 @@ function parseAnalysis(value) {
   }
 }
 
-function offsetSeconds(first, value) {
-  const a = new Date(first).getTime();
-  const b = new Date(value).getTime();
-  if (Number.isNaN(a) || Number.isNaN(b)) return null;
-  return Math.round((b - a) / 1000);
-}
-
-function PanelHeader({ title, subtitle, icon: Icon, right }) {
-  return (
-    <div className="flex items-center justify-between gap-3 border-b border-zinc-800 px-5 py-3.5">
-      <div className="flex min-w-0 items-center gap-2.5">
-        {Icon && <Icon size={16} className="shrink-0 text-cyan-400" />}
-        <div className="min-w-0">
-          <h2 className="text-sm font-semibold text-zinc-100">{title}</h2>
-          {subtitle && <p className="mt-0.5 text-xs text-zinc-500">{subtitle}</p>}
-        </div>
-      </div>
-      {right}
-    </div>
-  );
+function secondsBetween(a, b) {
+  const x = new Date(a).getTime();
+  const y = new Date(b).getTime();
+  return Number.isNaN(x) || Number.isNaN(y) ? null : Math.round((y - x) / 1000);
 }
 
 function BackLink() {
   return (
-    <Link
-      to="/incidents"
-      className="inline-flex items-center gap-2 text-xs font-medium text-zinc-400 transition hover:text-cyan-300"
-    >
-      <ArrowLeft size={14} />
+    <Link to="/incidents" className="inline-flex items-center gap-2 text-sm text-muted transition-colors duration-150 hover:text-accent">
+      <ArrowLeft size={16} />
       Back to incidents
     </Link>
   );
@@ -89,9 +93,145 @@ export default function IncidentDetailRoute() {
   return <IncidentDetail key={id} id={id} />;
 }
 
+function ScoreBreakdown({ incident, newFactors }) {
+  const s = severityOf(incident.severity);
+  const breakdown = incident.score_breakdown || [];
+  const raw = breakdown.reduce((sum, b) => sum + (Number(b.points) || 0), 0);
+  const scale = Math.max(raw, 10);
+  return (
+    <Card title="Explainable risk score" subtitle="Each factor counted once; the total is capped at 10" icon={ListChecks}>
+      <div className="px-6 pb-2 pt-6">
+        <div className="relative">
+          <div className="flex h-8 w-full gap-0.5 overflow-hidden rounded-lg bg-line">
+            {breakdown.map((item, i) => (
+              <div
+                key={item.factor}
+                title={`${item.factor}: +${item.points}`}
+                className={`flex h-full items-center justify-center text-xs font-semibold text-bg transition-[width] duration-250 ease-out ${newFactors.has(item.factor) ? "enter" : ""}`}
+                style={{
+                  width: `${((Number(item.points) || 0) / scale) * 100}%`,
+                  backgroundColor: s.hex,
+                  opacity: SEGMENT_OPACITY[i] ?? 0.2,
+                }}
+              >
+                <span className="mono">+{item.points}</span>
+              </div>
+            ))}
+          </div>
+          {raw > 10 && (
+            <div className="absolute -top-1 bottom-0" style={{ left: `${(10 / scale) * 100}%` }}>
+              <div className="h-10 w-0.5 bg-fg" />
+              <span className="mono absolute left-1 top-10 whitespace-nowrap text-xs text-muted">cap 10</span>
+            </div>
+          )}
+        </div>
+        <div className="mono mt-2 flex justify-between text-xs text-subtle">
+          <span>0</span>
+          <span>{raw > 10 ? `${raw} pts` : "10"}</span>
+        </div>
+      </div>
+
+      <ul className="divide-y divide-line">
+        {breakdown.map((item, i) => (
+          <li
+            key={item.factor}
+            className={`flex items-center justify-between gap-4 px-6 py-2 ${newFactors.has(item.factor) ? "enter flash" : ""}`}
+          >
+            <span className="flex min-w-0 items-center gap-2 text-sm text-fg">
+              <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: s.hex, opacity: SEGMENT_OPACITY[i] ?? 0.2 }} />
+              <span className="truncate">{item.factor}</span>
+            </span>
+            <span className="mono shrink-0 text-sm font-semibold text-fg">+{item.points}</span>
+          </li>
+        ))}
+        {breakdown.length === 0 && <li className="px-6 py-4 text-sm text-subtle">No score factors available.</li>}
+        <li className="flex items-center justify-between bg-raised/60 px-6 py-3">
+          <span className="text-sm font-semibold text-fg">
+            Total{raw > 10 && <span className="ml-2 text-xs font-normal text-subtle">{raw} points, capped at 10</span>}
+          </span>
+          <span className={`mono text-xl font-semibold ${s.text}`}>{incident.risk_score}/10</span>
+        </li>
+      </ul>
+    </Card>
+  );
+}
+
+function ChainTimeline({ incident, newEvents }) {
+  const events = incident.events || [];
+  const findingsByEvent = (incident.findings || []).reduce((acc, f) => {
+    if (f.event_id) acc[f.event_id] = (acc[f.event_id] || 0) + 1;
+    return acc;
+  }, {});
+  // The exfiltration step: the last event that carried findings.
+  const exfilId = [...events].reverse().find((e) => findingsByEvent[e.event_id])?.event_id;
+  const critical = incident.is_chain || String(incident.severity).toLowerCase() === "critical";
+
+  return (
+    <Card title="Chain timeline" subtitle="What happened, in order, with the time between steps" icon={Activity}>
+      {events.length === 0 ? (
+        <EmptyState icon={Activity} title="No event details for this incident" />
+      ) : (
+        <ol className="px-6 py-4">
+          {events.map((event, index) => {
+            const type = EVENT_TYPES[event.event_type] || { label: event.event_type, icon: Activity };
+            const Icon = type.icon;
+            const leaks = findingsByEvent[event.event_id] || 0;
+            const isExfil = event.event_id === exfilId;
+            const isNew = newEvents.has(event.event_id);
+            const gap = index > 0 ? secondsBetween(events[index - 1].timestamp, event.timestamp) : null;
+            return (
+              <li key={event.event_id}>
+                {index > 0 && (
+                  <div className="flex h-6 items-stretch gap-4 px-2" aria-hidden="true">
+                    <div className="flex w-8 justify-center">
+                      <span className={`w-0.5 rounded-full ${isExfil && critical ? "bg-critical" : "bg-accent"} ${isNew ? "grow-y" : ""}`} />
+                    </div>
+                    <span className="mono self-center text-xs text-subtle">{formatGap(gap)}</span>
+                  </div>
+                )}
+                <div
+                  className={`flex items-start gap-4 rounded-lg p-2 ${isExfil ? (critical ? "glow-critical bg-critical/5" : "shadow-[0_0_0_1px_var(--color-line-strong)]") : ""} ${isNew ? "enter" : ""}`}
+                >
+                  <span
+                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border ${
+                      leaks ? "border-critical/40 bg-critical/15 text-critical" : "border-accent/30 bg-accent/10 text-accent"
+                    }`}
+                  >
+                    <Icon size={16} />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-semibold text-fg">{type.label}</span>
+                      {isExfil && critical && (
+                        <span className="rounded-md border border-critical/40 bg-critical/10 px-2 py-0.5 text-xs font-semibold uppercase tracking-wider text-critical">
+                          Exfiltration
+                        </span>
+                      )}
+                      {leaks > 0 && (
+                        <span className="text-xs text-critical">
+                          {leaks} finding{leaks === 1 ? "" : "s"}
+                        </span>
+                      )}
+                    </div>
+                    <p className="mono mt-1 break-all text-xs text-fg/90">{event.destination || "No destination"}</p>
+                    <p className="mt-1 text-xs text-subtle">
+                      {formatDateTime(event.timestamp)} · <span className="mono">{event.source}</span>
+                      {event.provider ? ` → ${event.provider}` : ""}
+                    </p>
+                  </div>
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+    </Card>
+  );
+}
+
 function IncidentDetail({ id }) {
   const fetchIncident = useCallback(() => getIncident(id), [id]);
-  const { data: incident, error, loading } = usePolling(fetchIncident, 3000);
+  const { data: incident, error, loading } = usePolling(fetchIncident, 3000, `incident:${id}`);
 
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState(null);
@@ -128,7 +268,18 @@ function IncidentDetail({ id }) {
     return (
       <PageShell>
         <BackLink />
-        <div className="panel p-10 text-center text-sm text-zinc-400">Loading incident details…</div>
+        <div className="card flex items-center gap-6 p-6">
+          <Skeleton className="h-[136px] w-[136px] rounded-full" />
+          <div className="flex-1 space-y-3">
+            <Skeleton className="h-5 w-48" />
+            <Skeleton className="h-7 w-3/4" />
+            <Skeleton className="h-4 w-1/2" />
+          </div>
+        </div>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Skeleton className="h-72 rounded-xl" />
+          <Skeleton className="h-72 rounded-xl" />
+        </div>
       </PageShell>
     );
   }
@@ -137,289 +288,185 @@ function IncidentDetail({ id }) {
     return (
       <PageShell>
         <BackLink />
-        <div role="alert" className="rounded-xl border border-red-400/20 bg-red-400/5 p-5 text-sm text-red-300">
-          {error?.status === 404
-            ? "Incident not found. The database may have been reset."
-            : error?.message || "Unable to load incident"}
+        <div className="card">
+          <EmptyState
+            icon={TriangleAlert}
+            title={error?.status === 404 ? "Incident not found" : "Unable to load incident"}
+            hint={error?.status === 404 ? "The database may have been reset." : error?.message}
+          />
         </div>
       </PageShell>
     );
   }
 
   const s = severityOf(incident.severity);
-  const breakdown = incident.score_breakdown || [];
-  const events = incident.events || [];
   const findings = incident.findings || [];
-  const findingsByEvent = findings.reduce((acc, f) => {
-    if (f.event_id) acc[f.event_id] = (acc[f.event_id] || 0) + 1;
-    return acc;
-  }, {});
   // The backend stores the analysis, so a poll after it arrived still showing no
   // ai_analysis means the incident changed and the backend cleared it. Until that
   // next poll, the local copy is simply newer than the polled data.
-  const analysisStale =
-    !incident.ai_analysis && Boolean(localAnalysis) && incident !== localAnalysis.polledAt;
+  const analysisStale = !incident.ai_analysis && Boolean(localAnalysis) && incident !== localAnalysis.polledAt;
   const analysis = parseAnalysis(incident.ai_analysis || localAnalysis?.text);
-  const firstTimestamp = events[0]?.timestamp;
 
   return (
     <PageShell>
-      <div className="flex items-center justify-between gap-3">
-        <BackLink />
-        <LivePill />
-      </div>
+      <BackLink />
 
       {error?.status === 404 && (
-        <div role="alert" className="rounded-lg border border-amber-500/25 bg-amber-500/5 px-4 py-2.5 text-xs text-amber-300">
+        <div role="alert" className="rounded-lg border border-medium/30 bg-medium/5 px-4 py-2 text-sm text-medium">
           This incident no longer exists on the server (database reset). Showing the last loaded copy.
         </div>
       )}
 
-      {/* Header: what happened + the score */}
-      <section className="panel flex flex-col gap-5 p-5 lg:flex-row lg:items-center">
+      {/* Hero: gauge + what happened */}
+      <section
+        className="card flex items-center gap-8 p-6"
+        style={{ boxShadow: `inset 0 3px 0 ${s.hex}, var(--shadow-card)` }}
+      >
+        <div className={scoreChanged ? "score-pop" : ""}>
+          <RiskGauge score={incident.risk_score} severity={incident.severity} />
+        </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <SeverityBadge severity={incident.severity} />
             {incident.is_chain && <ChainBadge />}
             <ProviderStatusBadge sanctioned={incident.sanctioned} />
           </div>
-          <h1 className="mt-3 text-lg font-semibold leading-snug tracking-tight text-zinc-50">
-            {incident.agent_context}
-          </h1>
-          <p className="mt-2 text-xs text-zinc-500">
-            <span className="mono text-zinc-300">{incident.source}</span>
-            <span className="mx-1.5 text-zinc-600">→</span>
-            <span className="text-zinc-300">{incident.provider}</span>
-            <span className="mx-1.5 text-zinc-700">·</span>
+          <h1 className="mt-3 text-xl font-semibold leading-7 tracking-tight text-fg">{incident.agent_context}</h1>
+          <p className="mt-2 text-sm text-muted">
+            <span className="mono text-fg">{incident.source}</span>
+            <span className="mx-2 text-subtle">→</span>
+            <span className="text-fg">{incident.provider}</span>
+            <span className="mx-2 text-subtle">·</span>
             first seen {formatDateTime(incident.timestamp)}
-            <span className="mx-1.5 text-zinc-700">·</span>
-            <span className="mono text-zinc-600">{incident.incident_id}</span>
           </p>
-        </div>
-
-        <div className="w-full shrink-0 rounded-xl border border-zinc-800 bg-zinc-950/60 p-4 lg:w-56">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Risk score</p>
-          <p className={`mono mt-1 text-4xl font-semibold ${s.text}`}>
-            <span key={incident.risk_score} className={scoreChanged ? "score-pop" : ""}>
-              {incident.risk_score}
-            </span>
-            <span className="text-lg text-zinc-600">/10</span>
-          </p>
-          <ScoreMeter score={incident.risk_score} severity={incident.severity} className="mt-2" />
-          <p className={`mt-2 text-xs font-medium ${s.text}`}>{s.label} severity</p>
-        </div>
-      </section>
-
-      {/* Focal row: why it scored this way, and what happened in order */}
-      <section className="grid gap-4 lg:grid-cols-2">
-        <div className="panel overflow-hidden">
-          <PanelHeader
-            icon={ListChecks}
-            title="Explainable risk score"
-            subtitle="Every factor that contributed, each counted once"
-          />
-          <div className="divide-y divide-zinc-800/80">
-            {breakdown.map((item) => (
-              <div
-                key={item.factor}
-                className={`flex items-center justify-between gap-4 px-5 py-3 ${newFactors.has(item.factor) ? "enter flash" : ""}`}
-              >
-                <span className="text-sm text-zinc-200">{item.factor}</span>
-                <span className="mono shrink-0 rounded-md bg-zinc-800 px-2 py-0.5 text-sm font-semibold text-zinc-100">
-                  +{item.points}
-                </span>
-              </div>
-            ))}
-            {breakdown.length === 0 && (
-              <p className="px-5 py-6 text-sm text-zinc-500">No score factors available.</p>
-            )}
-            <div className="flex items-center justify-between bg-zinc-950/50 px-5 py-3.5">
-              <span className="text-sm font-semibold text-zinc-200">
-                Total
-                <span className="ml-2 text-xs font-normal text-zinc-500">capped at 10</span>
-              </span>
-              <span className={`mono text-lg font-semibold ${s.text}`}>{incident.risk_score}/10</span>
-            </div>
+          <div className="mt-4 flex flex-wrap items-center gap-4">
+            <PrivacyBadge />
+            <span className="mono text-xs text-subtle">{incident.incident_id}</span>
           </div>
         </div>
-
-        <div className="panel overflow-hidden">
-          <PanelHeader
-            icon={Activity}
-            title="Chain timeline"
-            subtitle="Trigger events in order, with time since the first"
-          />
-          {events.length === 0 ? (
-            <p className="p-6 text-sm text-zinc-500">No event details are available for this incident.</p>
-          ) : (
-            <ol className="p-5">
-              {events.map((event, index) => {
-                const type = EVENT_TYPES[event.event_type] || { label: event.event_type, icon: Activity };
-                const Icon = type.icon;
-                const offset = offsetSeconds(firstTimestamp, event.timestamp);
-                const leaks = findingsByEvent[event.event_id] || 0;
-                return (
-                  <li
-                    key={event.event_id}
-                    className={`relative flex gap-3 rounded-lg pb-5 last:pb-0 ${newEvents.has(event.event_id) ? "enter" : ""}`}
-                  >
-                    {index < events.length - 1 && (
-                      <span className="absolute left-[15px] top-9 bottom-1 w-px bg-zinc-700" />
-                    )}
-                    <div
-                      className={`relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border ${
-                        leaks ? "border-red-500/30 bg-red-500/10 text-red-400" : "border-cyan-400/20 bg-cyan-400/5 text-cyan-300"
-                      }`}
-                    >
-                      <Icon size={15} />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-sm font-medium text-zinc-100">{type.label}</span>
-                        <span className="mono text-[11px] text-zinc-500">
-                          {offset === null ? "" : offset === 0 ? "T+0s" : `T+${offset}s`}
-                        </span>
-                        {leaks > 0 && (
-                          <span className="rounded border border-red-500/30 bg-red-500/10 px-1.5 py-px text-[10px] font-semibold uppercase tracking-wider text-red-300">
-                            {leaks} finding{leaks === 1 ? "" : "s"}
-                          </span>
-                        )}
-                      </div>
-                      <p className="mono mt-1 break-all text-xs text-zinc-300">
-                        {event.destination || "No destination"}
-                      </p>
-                      <p className="mt-0.5 text-[11px] text-zinc-500">
-                        {formatDateTime(event.timestamp)}
-                        {" · "}
-                        <span className="mono">{event.source}</span>
-                        {event.provider ? ` → ${event.provider}` : ""}
-                      </p>
-                    </div>
-                  </li>
-                );
-              })}
-            </ol>
-          )}
-        </div>
       </section>
 
-      <section className="panel overflow-hidden">
-        <PanelHeader
-          icon={TriangleAlert}
-          title="Detected findings"
-          subtitle="Redacted evidence and fingerprints only; raw values are never stored"
-        />
+      {/* Focal row */}
+      <section className="grid gap-4 lg:grid-cols-2">
+        <ScoreBreakdown incident={incident} newFactors={newFactors} />
+        <ChainTimeline incident={incident} newEvents={newEvents} />
+      </section>
+
+      <Card title="Detected findings" subtitle="Redacted evidence and fingerprints only; raw values are never stored" icon={Fingerprint}>
         {findings.length === 0 ? (
-          <p className="p-6 text-sm text-zinc-500">No findings are attached to this incident.</p>
+          <EmptyState icon={Fingerprint} title="No findings in this session yet" hint="Agent actions alone can still raise the score." />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[640px] text-left">
-              <thead className="bg-zinc-950/50">
-                <tr className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
-                  <th className="px-5 py-2.5">Category</th>
-                  <th className="px-5 py-2.5">Rule</th>
-                  <th className="px-5 py-2.5">Redacted evidence</th>
-                  <th className="px-5 py-2.5">Fingerprint</th>
+              <thead>
+                <tr className="eyebrow border-b border-line">
+                  <th className="px-6 py-2 font-semibold">Category</th>
+                  <th className="px-6 py-2 font-semibold">Rule</th>
+                  <th className="px-6 py-2 font-semibold">Redacted evidence</th>
+                  <th className="px-6 py-2 font-semibold">Fingerprint</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-zinc-800/80">
+              <tbody className="divide-y divide-line">
                 {findings.map((finding, index) => (
                   <tr key={`${finding.rule}-${finding.event_id}-${index}`}>
-                    <td className="px-5 py-3 text-xs text-zinc-300">
+                    <td className="px-6 py-3 text-sm text-fg">
                       <span className="inline-flex items-center gap-2">
-                        <span className={`h-1.5 w-1.5 rounded-full ${CATEGORY_DOT[finding.category] || "bg-zinc-500"}`} />
+                        <span className={`h-2 w-2 rounded-full ${CATEGORY_DOT[finding.category] || "bg-subtle"}`} />
                         {finding.category}
                       </span>
                     </td>
-                    <td className="mono px-5 py-3 text-xs text-zinc-300">{finding.rule}</td>
-                    <td className="mono px-5 py-3 text-xs text-amber-200">{finding.redacted_evidence}</td>
-                    <td className="mono px-5 py-3 text-xs text-zinc-500">{finding.fingerprint || "—"}</td>
+                    <td className="mono px-6 py-3 text-xs text-muted">{finding.rule}</td>
+                    <td className="mono px-6 py-3 text-xs text-medium">{finding.redacted_evidence}</td>
+                    <td className="mono px-6 py-3 text-xs text-subtle">{finding.fingerprint || "—"}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         )}
-      </section>
+      </Card>
 
-      <section className="panel overflow-hidden">
-        <PanelHeader
-          icon={Sparkles}
-          title="AI security analysis"
-          subtitle="Triage from redacted fields only; payloads never leave this machine"
-          right={
-            <button
-              type="button"
-              onClick={handleAnalyze}
-              disabled={analyzing}
-              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg border border-cyan-400/25 bg-cyan-400/10 px-4 py-2 text-xs font-semibold text-cyan-200 transition hover:bg-cyan-400/20 disabled:opacity-50"
-            >
-              {analyzing ? <LoaderCircle size={15} className="animate-spin" /> : <Sparkles size={15} />}
-              {analyzing ? "Analyzing…" : analysisStale ? "Re-analyze" : "Analyze with AI"}
-            </button>
-          }
-        />
-
+      <Card
+        title="AI security analysis"
+        subtitle="Triage from redacted fields only; payloads never leave this machine"
+        icon={Sparkles}
+        actions={
+          <button
+            type="button"
+            onClick={handleAnalyze}
+            disabled={analyzing}
+            className="inline-flex items-center gap-2 rounded-lg border border-accent/40 bg-accent/10 px-4 py-2 text-sm font-semibold text-accent transition-colors duration-150 hover:bg-accent/20 disabled:opacity-50"
+          >
+            {analyzing ? <LoaderCircle size={16} className="animate-spin" /> : <Sparkles size={16} />}
+            {analyzing ? "Analyzing…" : analysisStale ? "Re-analyze" : "Analyze with AI"}
+          </button>
+        }
+      >
         {analysisError && (
-          <p className="border-b border-red-400/20 bg-red-400/5 px-5 py-3 text-xs text-red-300">{analysisError}</p>
+          <p className="border-b border-critical/30 bg-critical/5 px-6 py-3 text-sm text-critical">{analysisError}</p>
         )}
 
         {analysis ? (
-          <div className="space-y-4 p-5">
+          <div className="space-y-4 p-6">
             {analysisStale && (
-              <p className="rounded-lg border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-xs text-amber-300">
+              <p className="rounded-lg border border-medium/30 bg-medium/5 px-3 py-2 text-sm text-medium">
                 The incident changed since this analysis. Re-analyze for an up-to-date result.
               </p>
             )}
             <div className="flex flex-wrap items-center gap-6">
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Sensitivity</p>
-                <p className={`mt-1 text-sm font-semibold capitalize ${severityOf(analysis.sensitivity).text}`}>
+                <p className="eyebrow">Sensitivity</p>
+                <p className={`mt-1 text-base font-semibold capitalize ${severityOf(analysis.sensitivity).text}`}>
                   {analysis.sensitivity || "Unknown"}
                 </p>
               </div>
               {analysis.engine && (
                 <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Engine</p>
-                  <p className="mono mt-1 text-xs text-zinc-400">{analysis.engine}</p>
+                  <p className="eyebrow">Engine</p>
+                  <p className="mono mt-1 inline-flex rounded-md border border-line-strong bg-raised px-2 py-0.5 text-xs text-fg">
+                    {analysis.engine}
+                  </p>
                 </div>
               )}
+              <PrivacyBadge className="ml-auto" />
             </div>
 
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Summary</p>
-              <p className="mt-1 text-sm leading-6 text-zinc-300">{analysis.summary || "No summary returned."}</p>
+              <p className="eyebrow">Summary</p>
+              <p className="mt-1 text-sm leading-6 text-fg/90">{analysis.summary || "No summary returned."}</p>
             </div>
 
             <div>
-              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
-                Recommended remediation
-              </p>
+              <p className="eyebrow mb-2">Remediation checklist</p>
               {(analysis.remediation || []).length === 0 ? (
-                <p className="text-sm text-zinc-500">No remediation steps returned.</p>
+                <p className="text-sm text-subtle">No remediation steps returned.</p>
               ) : (
-                <ul className="space-y-2">
-                  {analysis.remediation.map((step, index) => (
-                    <li key={`${index}-${step}`} className="flex items-start gap-2 text-sm text-zinc-300">
-                      <CheckCircle2 size={15} className="mt-0.5 shrink-0 text-emerald-400" />
-                      {step}
-                    </li>
-                  ))}
+                <ul className="grid gap-2">
+                  {analysis.remediation.map((step, index) => {
+                    const Icon = remediationIcon(step);
+                    return (
+                      <li key={`${index}-${step}`} className="flex items-start gap-3 rounded-lg border border-line bg-raised/50 px-3 py-2 text-sm text-fg">
+                        <span className="mt-0.5 rounded-md border border-approved/30 bg-approved/10 p-1 text-approved">
+                          <Icon size={14} />
+                        </span>
+                        <span className="leading-6">{step}</span>
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </div>
-
-            <p className="border-t border-zinc-800 pt-3 text-[11px] text-emerald-300/80">
-              Analysed using redacted data only.
-            </p>
           </div>
         ) : (
-          <p className="p-5 text-xs leading-5 text-zinc-500">
-            Run AI analysis for a sensitivity assessment, summary and remediation steps. Only the
-            provider, scores, context sentence and redacted evidence are sent.
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-4 p-6">
+            <p className="max-w-xl text-sm text-muted">
+              Get a sensitivity assessment, summary and remediation checklist. Only the provider, scores, context
+              sentence and redacted evidence are sent.
+            </p>
+            <PrivacyBadge />
+          </div>
         )}
-      </section>
+      </Card>
     </PageShell>
   );
 }
