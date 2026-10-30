@@ -2,12 +2,21 @@
 
 import json
 import os
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
-import uvicorn
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
+# UTF-8 console output so no print (→, Hindi prompts…) can crash on a cp1252 Windows console.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
+import uvicorn  # noqa: E402
+from fastapi import Body, FastAPI, HTTPException  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
 
 def load_env_file(path: Path) -> None:
@@ -30,17 +39,18 @@ from detectors import mask_secrets, scan_payload  # noqa: E402
 from models import (  # noqa: E402
     Incident,
     IncidentDetail,
-    RawEvent,
     fetch_incident,
     fetch_incidents,
     fetch_session,
     fetch_stats,
+    get_connection,
     init_db,
     insert_event,
     seed_from_file,
     session_key_for,
     set_ai_analysis,
     upsert_incident,
+    validate_event,
 )
 from providers import classify  # noqa: E402
 
@@ -109,38 +119,77 @@ def get_stats() -> dict:
     return fetch_stats()
 
 
+@app.get("/api/health")
+def health() -> dict:
+    """Readiness check for the frontend and the pre-stage routine."""
+    try:
+        with get_connection() as conn:
+            conn.execute("SELECT COUNT(*) FROM events").fetchone()
+        db_ok = True
+    except Exception:
+        db_ok = False
+    model = os.environ.get("FEATHERLESS_MODEL", "").strip()
+    configured = model and os.environ.get("FEATHERLESS_API_KEY", "").strip()
+    return {
+        "status": "ok" if db_ok else "degraded",
+        "db": db_ok,
+        "analyzer": f"featherless:{model}" if configured else "offline-rules",
+    }
+
+
 @app.post("/api/ingest")
-def ingest(events: list[RawEvent]) -> dict:
+def ingest(events: list[Any] = Body(...)) -> dict:
     """Classify, scan and redact each event, save its metadata and findings, then
     re-correlate every session the batch touched using that session's stored history.
 
+    Events are validated one by one (models.validate_event): a malformed event is
+    skipped with a warning instead of failing the whole batch.
     Re-correlating from the DB lets a chain build up across single-event batches
     (demo_agent.py), and upserting by session keeps one incident per session.
     """
     print(f"[ingest] Received {len(events)} events")
 
+    skipped = 0
+    processed = 0
     touched_sessions: list[str] = []
-    for event in events:
-        event.provider, event.sanctioned = classify(event.destination, event.dst_port, event.path)
-        findings: list[dict] = []
-        if event.payload_visible and event.payload:
-            findings = scan_payload(event.payload)
-            for f in findings:
-                f["event_id"] = event.event_id
-            event.payload = mask_secrets(event.payload, findings)
-        insert_event(event, findings)  # metadata + redacted findings only, payload NOT stored
+    for i, raw in enumerate(events):
+        event, reason = validate_event(raw)
+        if event is None:
+            event_id = raw.get("event_id") if isinstance(raw, dict) else None
+            print(f"[ingest] WARNING skipped event #{i} ({event_id}): {reason}")
+            skipped += 1
+            continue
+        try:
+            event.provider, event.sanctioned = classify(event.destination, event.dst_port, event.path)
+            findings: list[dict] = []
+            if event.payload_visible and event.payload:
+                findings = scan_payload(event.payload)
+                for f in findings:
+                    f["event_id"] = event.event_id
+                event.payload = mask_secrets(event.payload, findings)
+            insert_event(event, findings)  # metadata + redacted findings only, payload NOT stored
+        except Exception as exc:
+            print(f"[ingest] WARNING skipped event {event.event_id}: {type(exc).__name__}: {exc}")
+            skipped += 1
+            continue
+        processed += 1
         key = session_key_for(event)
         if key not in touched_sessions:
             touched_sessions.append(key)
 
     incident_ids: list[str] = []
     for key in touched_sessions:
-        session_events, findings_by_event = fetch_session(key)
-        for incident in correlate_events(session_events, findings_by_event):
-            incident_ids.append(upsert_incident(incident, key))
-    print(f"[ingest] Saved {len(incident_ids)} incidents across {len(touched_sessions)} sessions")
+        try:
+            session_events, findings_by_event = fetch_session(key)
+            for incident in correlate_events(session_events, findings_by_event):
+                incident_ids.append(upsert_incident(incident, key))
+        except Exception as exc:  # one bad session must not lose the rest of the batch
+            print(f"[ingest] WARNING correlation failed for session {key}: {type(exc).__name__}: {exc}")
+    print(f"[ingest] Saved {len(incident_ids)} incidents across {len(touched_sessions)} sessions"
+          + (f", skipped {skipped} events" if skipped else ""))
 
-    return {"status": "success", "processed": len(events), "incidents": len(incident_ids)}
+    return {"status": "success", "processed": processed, "incidents": len(incident_ids),
+            "skipped": skipped}
 
 
 if __name__ == "__main__":

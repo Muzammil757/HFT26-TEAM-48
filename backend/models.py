@@ -35,6 +35,32 @@ class RawEvent(BaseModel):
     sanctioned: bool | None = None
 
 
+EVENT_TYPES = {"ai_request", "connection", "shell_exec", "file_read"}
+
+
+def validate_event(raw: object) -> tuple[RawEvent | None, str | None]:
+    """Validate one incoming event. Returns (event, None) or (None, reason).
+
+    Beyond the schema: event_type must be one of EVENT_TYPES and timestamp must be
+    ISO 8601, since the correlator sorts by it. Shared by main.py and load_demo.py.
+    """
+    if not isinstance(raw, dict):
+        return None, f"expected a JSON object, got {type(raw).__name__}"
+    try:
+        event = RawEvent.model_validate(raw)
+    except ValidationError as exc:
+        return None, "; ".join(
+            f"{'.'.join(str(p) for p in e['loc']) or 'event'}: {e['msg']}" for e in exc.errors()
+        )
+    if event.event_type not in EVENT_TYPES:
+        return None, f"event_type {event.event_type!r} is not one of {sorted(EVENT_TYPES)}"
+    try:
+        datetime.fromisoformat(event.timestamp.replace("Z", "+00:00"))
+    except ValueError:
+        return None, f"timestamp {event.timestamp!r} is not ISO 8601"
+    return event, None
+
+
 class Finding(BaseModel):
     category: str
     rule: str
