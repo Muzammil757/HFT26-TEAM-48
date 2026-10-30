@@ -1,0 +1,96 @@
+{
+    "incident_id": "8a6b4e20-9d3c-4f12-8b61-1d5f7a0c2e91",
+    "timestamp": "2026-10-30T16:20:05Z",
+    "risk_score": 10,
+    "provider": "OpenAI",
+    "trigger_events": [
+      "evt_05_002",
+      "evt_05_003",
+      "evt_05_004"
+    ],
+    "findings": [
+      {
+        "category": "Credential",
+        "rule": "AWS_Access_Key",
+        "redacted_evidence": "AKIA********MPLE",
+        "event_id": "evt_05_004",
+        "fingerprint": "1a5d44a2dca1"
+      },
+      {
+        "category": "AgentAction",
+        "rule": "Agent_Shell_Exec",
+        "redacted_evidence": "run_shell: cat ~/.aws/credentials",
+        "event_id": "evt_05_004",
+        "fingerprint": null
+      },
+      {
+        "category": "AgentAction",
+        "rule": "Agent_Sensitive_File_Read",
+        "redacted_evidence": "run_shell: cat ~/.aws/credentials",
+        "event_id": "evt_05_004",
+        "fingerprint": null
+      }
+    ],
+    "agent_context": "autogpt read .env, ran a shell command, then sent an AWS key to OpenAI within 25 seconds.",
+    "source": "autogpt",
+    "sanctioned": true,
+    "severity": "critical",
+    "score_breakdown": [
+      {
+        "factor": "Credential found",
+        "points": 4
+      },
+      {
+        "factor": "Agent shell execution",
+        "points": 3
+      },
+      {
+        "factor": "Sensitive file read",
+        "points": 3
+      },
+      {
+        "factor": "Exfiltration chain (sensitive read → credential sent within 60s)",
+        "points": 3
+      }
+    ],
+    "is_chain": true,
+    "ai_analysis": null,
+    "events": [
+      {
+        "event_id": "evt_05_001",
+        "timestamp": "2026-10-30T16:20:05Z",
+        "event_type": "ai_request",
+        "source": "autogpt",
+        "destination": "api.openai.com",
+        "provider": "OpenAI",
+        "sanctioned": true
+      },
+      {
+        "event_id": "evt_05_002",
+        "timestamp": "2026-10-30T16:20:12Z",
+        "event_type": "file_read",
+        "source": "autogpt",
+        "destination": "/home/dev/project/.env",
+        "provider": null,
+        "sanctioned": null
+      },
+      {
+        "event_id": "evt_05_003",
+        "timestamp": "2026-10-30T16:20:20Z",
+        "event_type": "shell_exec",
+        "source": "autogpt",
+        "destination": "cat ~/.aws/credentials",
+        "provider": null,
+        "sanctioned": null
+      },
+      {
+        "event_id": "evt_05_004",
+        "timestamp": "2026-10-30T16:20:30Z",
+        "event_type": "ai_request",
+        "source": "autogpt",
+        "destination": "api.openai.com",
+        "provider": "OpenAI",
+        "sanctioned": true
+      }
+    ]
+  }

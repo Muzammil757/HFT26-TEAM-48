@@ -1,0 +1,135 @@
+[
+  {
+    "incident_id": "8a6b4e20-9d3c-4f12-8b61-1d5f7a0c2e91",
+    "timestamp": "2026-10-30T16:20:05Z",
+    "risk_score": 10,
+    "provider": "OpenAI",
+    "trigger_events": [
+      "evt_05_002",
+      "evt_05_003",
+      "evt_05_004"
+    ],
+    "findings": [
+      {
+        "category": "Credential",
+        "rule": "AWS_Access_Key",
+        "redacted_evidence": "AKIA********MPLE",
+        "event_id": "evt_05_004",
+        "fingerprint": "1a5d44a2dca1"
+      },
+      {
+        "category": "AgentAction",
+        "rule": "Agent_Shell_Exec",
+        "redacted_evidence": "run_shell: cat ~/.aws/credentials",
+        "event_id": "evt_05_004",
+        "fingerprint": null
+      },
+      {
+        "category": "AgentAction",
+        "rule": "Agent_Sensitive_File_Read",
+        "redacted_evidence": "run_shell: cat ~/.aws/credentials",
+        "event_id": "evt_05_004",
+        "fingerprint": null
+      }
+    ],
+    "agent_context": "autogpt read .env, ran a shell command, then sent an AWS key to OpenAI within 25 seconds.",
+    "source": "autogpt",
+    "sanctioned": true,
+    "severity": "critical",
+    "score_breakdown": [
+      {
+        "factor": "Credential found",
+        "points": 4
+      },
+      {
+        "factor": "Agent shell execution",
+        "points": 3
+      },
+      {
+        "factor": "Sensitive file read",
+        "points": 3
+      },
+      {
+        "factor": "Exfiltration chain (sensitive read → credential sent within 60s)",
+        "points": 3
+      }
+    ],
+    "is_chain": true,
+    "ai_analysis": null
+  },
+  {
+    "incident_id": "4e2c8f91-7b35-4d6a-9c12-5a8f0e3b7d42",
+    "timestamp": "2026-10-30T16:10:12Z",
+    "risk_score": 6,
+    "provider": "Ollama",
+    "trigger_events": [
+      "evt_03_002"
+    ],
+    "findings": [
+      {
+        "category": "Credential",
+        "rule": "OpenAI_API_Key",
+        "redacted_evidence": "sk-p********1234",
+        "event_id": "evt_03_002",
+        "fingerprint": "f4bb657751ce"
+      }
+    ],
+    "agent_context": "python.exe sent a redacted API credential to the unapproved Ollama provider.",
+    "source": "python.exe",
+    "sanctioned": false,
+    "severity": "high",
+    "score_breakdown": [
+      {
+        "factor": "Unsanctioned AI provider",
+        "points": 2
+      },
+      {
+        "factor": "Credential found",
+        "points": 4
+      }
+    ],
+    "is_chain": false,
+    "ai_analysis": null
+  },
+  {
+    "incident_id": "b7d3a9e2-5c41-4f86-8a20-6d1e4b9c3f75",
+    "timestamp": "2026-10-30T16:05:34Z",
+    "risk_score": 4,
+    "provider": "Hugging Face",
+    "trigger_events": [
+      "evt_04_003"
+    ],
+    "findings": [
+      {
+        "category": "PII",
+        "rule": "Email",
+        "redacted_evidence": "d***@example.test",
+        "event_id": "evt_04_003",
+        "fingerprint": "618d4231cde1"
+      },
+      {
+        "category": "PII",
+        "rule": "Phone_IN",
+        "redacted_evidence": "XXXXXX3210",
+        "event_id": "evt_04_003",
+        "fingerprint": "f3a47ce5ce3d"
+      }
+    ],
+    "agent_context": "node.exe sent two pieces of personal information to the unapproved Hugging Face provider.",
+    "source": "node.exe",
+    "sanctioned": false,
+    "severity": "medium",
+    "score_breakdown": [
+      {
+        "factor": "Unsanctioned AI provider",
+        "points": 2
+      },
+      {
+        "factor": "PII detected",
+        "points": 2
+      }
+    ],
+    "is_chain": false,
+    "ai_analysis": null
+  }
+]

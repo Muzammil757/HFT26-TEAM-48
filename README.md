@@ -1,0 +1,47 @@
+# ShadowGuard AI Overview
+
+ShadowGuard AI shows which processes on a machine are talking to which AI providers — without decrypting anything — inspects payloads only where plaintext legitimately exists, and catches AI agents that read your secrets and send them out.
+
+## Standout Features
+1. Zero-decryption Shadow AI Inventory — a live table of *process → AI provider → approved or SHADOW*, built from connection metadata (process name, PID, destination host/port).
+2. Agentic Exfiltration Chain Detection — when an agent reads a sensitive file (e.g. `.env`, `~/.aws/credentials`), runs a shell command, and then sends a credential to an LLM within 60 seconds, we raise **one** correlated, critical incident and show it as a timeline.
+3. Privacy-preserving AI Triage — the Featherless LLM analyzes incidents and suggests remediation, but **only ever receives redacted evidence and fingerprints, never the raw secret or payload**.
+
+## Architecture
+![](architecture_diagram.txt)
+
+## Setup/Run Commands
+
+Backend:
+```bash
+cd backend
+python -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+export FEATHERLESS_API_KEY=... FEATHERLESS_MODEL=...
+python main.py
+```
+
+Load Demo Data:
+```bash
+cd backend
+generate_data.py
+cd ../demo_data
+for f in ../demo_data/0*.jsonl; do python load_demo.py "$f"; done
+```
+
+Frontend:
+```bash
+cd frontend && npm install && npm run dev
+```
+
+## Screenshots
+
+(Placeholder)
+
+## Team
+
+* Member 1: Lead (All backend logic)
+* Member 2: Demo data + live demo script
+* Member 3: Independent testing + README
+* Member 4: Frontend
+* Member 5: Featherless setup, pitch deck, backup demo video

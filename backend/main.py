@@ -55,7 +55,7 @@ from models import (  # noqa: E402
 )
 from providers import classify  # noqa: E402
 
-MOCK_DATA = Path(__file__).parent.parent / "frontend" / "mock_incidents.json"
+MOCK_DATA = Path(__file__).parent.parent / "frontend" / "src" / "mocks" / "mock_incidents.json"
 
 
 @asynccontextmanager

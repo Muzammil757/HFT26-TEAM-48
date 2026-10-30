@@ -1,0 +1,111 @@
+{
+    "total_events": 214,
+    "ai_requests": 180,
+    "shadow_requests": 61,
+    "providers_seen": 4,
+    "incidents_total": 3,
+    "incidents_by_severity": {
+      "critical": 1,
+      "high": 1,
+      "medium": 1,
+      "low": 0
+    },
+    "by_provider": [
+      {
+        "provider": "OpenAI",
+        "sanctioned": true,
+        "count": 119
+      },
+      {
+        "provider": "Ollama",
+        "sanctioned": false,
+        "count": 33
+      },
+      {
+        "provider": "Hugging Face",
+        "sanctioned": false,
+        "count": 18
+      },
+      {
+        "provider": "Anthropic",
+        "sanctioned": false,
+        "count": 10
+      }
+    ],
+    "inventory": [
+      {
+        "source": "cursor.exe",
+        "provider": "OpenAI",
+        "sanctioned": true,
+        "requests": 74,
+        "last_seen": "2026-10-30T16:28:11Z"
+      },
+      {
+        "source": "python.exe",
+        "provider": "Ollama",
+        "sanctioned": false,
+        "requests": 33,
+        "last_seen": "2026-10-30T16:27:42Z"
+      },
+      {
+        "source": "node.exe",
+        "provider": "Hugging Face",
+        "sanctioned": false,
+        "requests": 18,
+        "last_seen": "2026-10-30T16:25:19Z"
+      },
+      {
+        "source": "autogpt",
+        "provider": "OpenAI",
+        "sanctioned": true,
+        "requests": 26,
+        "last_seen": "2026-10-30T16:23:50Z"
+      },
+      {
+        "source": "chrome.exe",
+        "provider": "Anthropic",
+        "sanctioned": false,
+        "requests": 10,
+        "last_seen": "2026-10-30T16:20:03Z"
+      },
+      {
+        "source": "python.exe",
+        "provider": "OpenAI",
+        "sanctioned": true,
+        "requests": 19,
+        "last_seen": "2026-10-30T16:18:36Z"
+      }
+    ],
+    "timeline": [
+      {
+        "minute": "2026-10-30T16:00:00Z",
+        "requests": 8,
+        "incidents": 0
+      },
+      {
+        "minute": "2026-10-30T16:05:00Z",
+        "requests": 14,
+        "incidents": 0
+      },
+      {
+        "minute": "2026-10-30T16:10:00Z",
+        "requests": 21,
+        "incidents": 1
+      },
+      {
+        "minute": "2026-10-30T16:15:00Z",
+        "requests": 17,
+        "incidents": 0
+      },
+      {
+        "minute": "2026-10-30T16:20:00Z",
+        "requests": 28,
+        "incidents": 1
+      },
+      {
+        "minute": "2026-10-30T16:25:00Z",
+        "requests": 32,
+        "incidents": 1
+      }
+    ]
+  }

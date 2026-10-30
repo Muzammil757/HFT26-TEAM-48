@@ -1,0 +1,104 @@
+import mockStats from "./mocks/mock_stats.json";
+import mockIncidents from "./mocks/mock_incidents.json";
+import mockIncidentDetail from "./mocks/mock_incident_detail.json";
+
+export const BASE_URL = "http://127.0.0.1:8000";
+export const USE_MOCKS = false;
+
+async function request(path, options = {}) {
+  const response = await fetch(`${BASE_URL}${path}`, {
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers
+    },
+    ...options
+  });
+
+  if (!response.ok) {
+    let message = `Request failed with status ${response.status}`;
+
+    try {
+      const body = await response.json();
+      message = body.detail || body.message || message;
+    } catch {
+      // Keep the HTTP status message if the response is not JSON.
+    }
+
+    throw new Error(message);
+  }
+
+  return response.json();
+}
+
+export async function getStats() {
+  if (USE_MOCKS) {
+    return mockStats;
+  }
+
+  return request("/api/stats");
+}
+
+export async function getIncidents() {
+  if (USE_MOCKS) {
+    return mockIncidents;
+  }
+
+  return request("/api/incidents");
+}
+
+export async function getIncident(id) {
+  if (USE_MOCKS) {
+    if (mockIncidentDetail.incident_id === id) {
+      return mockIncidentDetail;
+    }
+
+    const incident = mockIncidents.find(
+      (item) => item.incident_id === id
+    );
+
+    if (!incident) {
+      throw new Error(`Incident ${id} was not found`);
+    }
+
+    return {
+      ...incident,
+      events: []
+    };
+  }
+
+  return request(`/api/incidents/${encodeURIComponent(id)}`);
+}
+
+export async function analyzeIncident(id) {
+  if (USE_MOCKS) {
+    const incident =
+      mockIncidentDetail.incident_id === id
+        ? mockIncidentDetail
+        : mockIncidents.find((item) => item.incident_id === id);
+
+    if (!incident) {
+      throw new Error(`Incident ${id} was not found`);
+    }
+
+    return {
+      ...incident,
+      ai_analysis: JSON.stringify({
+        sensitivity: "critical",
+        summary:
+          "The incident contains redacted evidence of sensitive information being accessed and sent to an AI provider.",
+        remediation: [
+          "Rotate any affected credentials.",
+          "Review the process and its access to sensitive files.",
+          "Restrict unnecessary AI provider access."
+        ]
+      })
+    };
+  }
+
+  return request(
+    `/api/incidents/${encodeURIComponent(id)}/analyze`,
+    {
+      method: "POST"
+    }
+  );
+}
