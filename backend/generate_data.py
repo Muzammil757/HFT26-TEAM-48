@@ -123,7 +123,7 @@ def openai_chat_body(prompt: str, model: str = "gpt-4o") -> str:
     })
 
 
-def anthropic_messages_body(prompt: str, model: str = "claude-3-5-sonnet") -> str:
+def anthropic_messages_body(prompt: str, model: str = "claude-x") -> str:
     """Anthropic /v1/messages format serialized as JSON string."""
     return json.dumps({
         "model": model,
@@ -339,41 +339,108 @@ def generate_file_02(base_time: datetime) -> list[dict]:
 def generate_file_03(base_time: datetime) -> list[dict]:
     """03_key_leak.jsonl (~8 events):
     AKIAIOSFODNN7EXAMPLE; aws_secret_access_key; sk-proj- key; ghp_ token; JWT; RSA private key block.
+    3 leaks sent to shadow providers (Ollama, Hugging Face, Anthropic) -> Score 6 (HIGH).
+    5 leaks sent to OpenAI -> Score 4 (MEDIUM).
     """
     events = []
 
-    # Leaked credential payloads
+    # Leaked credential configurations:
+    # (source, pid, prompt, destination, dst_port, path, body_builder)
     leaks = [
-        # 1. AWS Access Key
-        ("cursor.exe", 3012, "Why is my S3 upload failing? AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE and bucket=prod-assets"),
-        # 2. AWS Secret Access Key
-        ("python.exe", 3016, 'Config setup:\naws_secret_access_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"\nPlease review.'),
-        # 3. OpenAI API Key (sk-proj- + 40 chars)
-        ("cursor.exe", 3012, "Here is my client init: client = OpenAI(api_key='sk-proj-9AbCdEfGhIjKlMnOpQrStUvWxYz0123456789aBcD')"),
-        # 4. GitHub Token (ghp_ + 36 chars)
-        ("Code.exe", 3020, "Clone fails with authorization token ghp_1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6p7q8r on private repo."),
-        # 5. Programmatically built JWT
-        ("python.exe", 3016, f"Can you decode this user auth token and explain the claims? token = {build_jwt()}"),
-        # 6. RSA Private Key block
-        ("cursor.exe", 3012, "Connecting to Bastion host using this key:\n-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA0Yx31exampleprivatekeyblockcontentnotrealAAAA\n-----END RSA PRIVATE KEY-----"),
-        # 7. HuggingFace Token (hf_ + 30 chars)
-        ("python.exe", 3016, "Download dataset from hub using token hf_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789 and save to disk."),
-        # 8. Anthropic API Key (sk-ant- + 25 chars)
-        ("Code.exe", 3020, "Ant client setup: Anthropic(api_key='sk-ant-api03-abcdefghijklmnop123456789')"),
+        # 1. AWS Access Key -> OpenAI (Sanctioned) -> Score 4 (MEDIUM)
+        (
+            "cursor.exe",
+            3012,
+            "Why is my S3 upload failing? AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE and bucket=prod-assets",
+            "api.openai.com",
+            443,
+            "/v1/chat/completions",
+            openai_chat_body,
+        ),
+        # 2. AWS Secret Access Key -> Ollama localhost:11434 /api/chat (SHADOW) -> Score 6 (HIGH)
+        (
+            "python.exe",
+            3016,
+            'Config setup:\naws_secret_access_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"\nPlease review.',
+            "localhost",
+            11434,
+            "/api/chat",
+            ollama_chat_body,
+        ),
+        # 3. OpenAI API Key -> OpenAI (Sanctioned) -> Score 4 (MEDIUM)
+        (
+            "cursor.exe",
+            3012,
+            "Here is my client init: client = OpenAI(api_key='sk-proj-9AbCdEfGhIjKlMnOpQrStUvWxYz0123456789aBcD')",
+            "api.openai.com",
+            443,
+            "/v1/chat/completions",
+            openai_chat_body,
+        ),
+        # 4. GitHub Token -> OpenAI (Sanctioned) -> Score 4 (MEDIUM)
+        (
+            "Code.exe",
+            3020,
+            "Clone fails with authorization token ghp_1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6p7q8r on private repo.",
+            "api.openai.com",
+            443,
+            "/v1/chat/completions",
+            openai_chat_body,
+        ),
+        # 5. Programmatically built JWT -> OpenAI (Sanctioned) -> Score 4 (MEDIUM)
+        (
+            "python.exe",
+            3016,
+            f"Can you decode this user auth token and explain the claims? token = {build_jwt()}",
+            "api.openai.com",
+            443,
+            "/v1/chat/completions",
+            openai_chat_body,
+        ),
+        # 6. RSA Private Key block -> OpenAI (Sanctioned) -> Score 4 (MEDIUM)
+        (
+            "cursor.exe",
+            3012,
+            "Connecting to Bastion host using this key:\n-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA0Yx31exampleprivatekeyblockcontentnotrealAAAA\n-----END RSA PRIVATE KEY-----",
+            "api.openai.com",
+            443,
+            "/v1/chat/completions",
+            openai_chat_body,
+        ),
+        # 7. HuggingFace Token -> Hugging Face (node.exe) (SHADOW) -> Score 6 (HIGH)
+        (
+            "node.exe",
+            8420,
+            "Download dataset from hub using token hf_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789 and save to disk.",
+            "api-inference.huggingface.co",
+            443,
+            "/models/meta-llama/Meta-Llama-3-8B-Instruct",
+            huggingface_models_body,
+        ),
+        # 8. Anthropic API Key -> Anthropic /v1/messages (SHADOW) -> Score 6 (HIGH)
+        (
+            "Code.exe",
+            3020,
+            "Ant client setup: Anthropic(api_key='sk-ant-api03-abcdefghijklmnop123456789')",
+            "api.anthropic.com",
+            443,
+            "/v1/messages",
+            anthropic_messages_body,
+        ),
     ]
 
-    for idx, (source, pid, prompt) in enumerate(leaks, start=1):
+    for idx, (source, pid, prompt, dest, port, path, builder) in enumerate(leaks, start=1):
         t = (base_time + timedelta(seconds=(idx - 1) * 5)).strftime("%Y-%m-%dT%H:%M:%SZ")
         event = make_raw_event(
             event_id=f"evt_03_{idx:03d}",
             timestamp=t,
             source=source,
             event_type="ai_request",
-            destination="api.openai.com",
-            dst_port=443,
-            path="/v1/chat/completions",
+            destination=dest,
+            dst_port=port,
+            path=path,
             payload_visible=True,
-            payload=openai_chat_body(prompt),
+            payload=builder(prompt),
             pid=pid,
             session_id=f"sess-leak-{idx}",
         )
@@ -385,6 +452,9 @@ def generate_file_04(base_time: datetime) -> list[dict]:
     """04_pii_leak.jsonl (~8 events):
     debug this CSV prompts with emails, +91 98xxxxxxxx phones, PAN, Verhoeff-valid Aadhaar, Luhn-valid cards.
     At least one prompt with 3+ PII items.
+    Item 7 (4-item CSV row) -> Ollama localhost:11434 /api/chat (SHADOW) -> Score 5 (HIGH).
+    Item 8 (2-item prompt) -> Ollama localhost:11434 /api/chat (SHADOW) -> Score 4 (MEDIUM).
+    Items 1-6 -> OpenAI.
     """
     events = []
 
@@ -394,41 +464,101 @@ def generate_file_04(base_time: datetime) -> list[dict]:
 
     # Prompts containing PII
     pii_items = [
-        # 1. Email leak
-        ("python.exe", 4100, "Debug this user report CSV row:\nUser: alice.walker@enterprise-solutions.com, support ticket #8892"),
-        # 2. Indian Phone number (+91 98xxxxxxxx)
-        ("python.exe", 4100, "Please parse phone log: call received from +91 9876543210 at 14:30 IST regarding escalation"),
-        # 3. PAN (ABCDE1234F)
-        ("Code.exe", 4104, "Verify customer tax deduction record with PAN: ABCDE1234F for financial audit"),
-        # 4. Verhoeff-valid Aadhaar
-        ("python.exe", 4100, f"KYC verification pipeline debug: customer submitted Aadhaar {aadhaar_1} for identity check"),
-        # 5. Luhn-valid card 1
-        ("chrome.exe", 4108, "E-commerce checkout webhook failed for Visa card 4111 1111 1111 1111 with error insufficient_funds"),
-        # 6. Luhn-valid card 2
-        ("chrome.exe", 4108, "Payment reconciliation table shows chargeback on Mastercard 5555 5555 5555 4444"),
-        # 7. PROMPT WITH 3+ PII ITEMS (Email + Phone + PAN + Aadhaar)
+        # 1. Email leak -> OpenAI
+        (
+            "python.exe",
+            4100,
+            "Debug this user report CSV row:\nUser: alice.walker@enterprise-solutions.com, support ticket #8892",
+            "api.openai.com",
+            443,
+            "/v1/chat/completions",
+            openai_chat_body,
+        ),
+        # 2. Indian Phone number (+91 98xxxxxxxx) -> OpenAI
+        (
+            "python.exe",
+            4100,
+            "Please parse phone log: call received from +91 9876543210 at 14:30 IST regarding escalation",
+            "api.openai.com",
+            443,
+            "/v1/chat/completions",
+            openai_chat_body,
+        ),
+        # 3. PAN (ABCDE1234F) -> OpenAI
+        (
+            "Code.exe",
+            4104,
+            "Verify customer tax deduction record with PAN: ABCDE1234F for financial audit",
+            "api.openai.com",
+            443,
+            "/v1/chat/completions",
+            openai_chat_body,
+        ),
+        # 4. Verhoeff-valid Aadhaar -> OpenAI
+        (
+            "python.exe",
+            4100,
+            f"KYC verification pipeline debug: customer submitted Aadhaar {aadhaar_1} for identity check",
+            "api.openai.com",
+            443,
+            "/v1/chat/completions",
+            openai_chat_body,
+        ),
+        # 5. Luhn-valid card 1 -> OpenAI
+        (
+            "chrome.exe",
+            4108,
+            "E-commerce checkout webhook failed for Visa card 4111 1111 1111 1111 with error insufficient_funds",
+            "api.openai.com",
+            443,
+            "/v1/chat/completions",
+            openai_chat_body,
+        ),
+        # 6. Luhn-valid card 2 -> OpenAI
+        (
+            "chrome.exe",
+            4108,
+            "Payment reconciliation table shows chargeback on Mastercard 5555 5555 5555 4444",
+            "api.openai.com",
+            443,
+            "/v1/chat/completions",
+            openai_chat_body,
+        ),
+        # 7. PROMPT WITH 4 PII ITEMS (Email + Phone + PAN + Aadhaar) -> Ollama localhost:11434 /api/chat (SHADOW) -> Score 5 (HIGH)
         (
             "python.exe",
             4100,
             f"Debug this CSV export: name=Vikram Mehta, email=vikram.mehta@fintech.co.in, "
             f"phone=+91 9822001122, PAN=BKPRM7711Q, Aadhaar={aadhaar_2}. Please normalize columns.",
+            "localhost",
+            11434,
+            "/api/chat",
+            ollama_chat_body,
         ),
-        # 8. Multi PII item (Phone and Email)
-        ("Code.exe", 4104, "Customer profile lookup: primary email rahul.verma@domain.org, alternate phone 9812345678"),
+        # 8. 2-item PII prompt (Phone + Email) -> Ollama localhost:11434 /api/chat (SHADOW) -> Score 4 (MEDIUM)
+        (
+            "python.exe",
+            4100,
+            "Customer profile lookup: primary email rahul.verma@domain.org, alternate phone 9812345678",
+            "localhost",
+            11434,
+            "/api/chat",
+            ollama_chat_body,
+        ),
     ]
 
-    for idx, (source, pid, prompt) in enumerate(pii_items, start=1):
+    for idx, (source, pid, prompt, dest, port, path, builder) in enumerate(pii_items, start=1):
         t = (base_time + timedelta(seconds=(idx - 1) * 4)).strftime("%Y-%m-%dT%H:%M:%SZ")
         event = make_raw_event(
             event_id=f"evt_04_{idx:03d}",
             timestamp=t,
             source=source,
             event_type="ai_request",
-            destination="api.openai.com",
-            dst_port=443,
-            path="/v1/chat/completions",
+            destination=dest,
+            dst_port=port,
+            path=path,
             payload_visible=True,
-            payload=openai_chat_body(prompt),
+            payload=builder(prompt),
             pid=pid,
             session_id=f"sess-pii-{idx}",
         )
