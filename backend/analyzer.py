@@ -11,16 +11,32 @@ import re
 import sys
 
 FEATHERLESS_BASE_URL = "https://api.featherless.ai/v1"
-TIMEOUT_SECONDS = 20
+TIMEOUT_SECONDS = 10  # stage safety: slower calls fall back to offline rules
 OFFLINE_ENGINE = "offline-rules"
 
 SYSTEM_PROMPT = (
-    "You are a security analyst triaging a data-exfiltration incident detected on an "
-    "employee endpoint. All evidence is already redacted; never ask for the raw values. "
+    "You are a security analyst triaging an AI data-exposure incident on a single machine. "
+    "The 'source' is the local process that sent the data: it may be an autonomous AI agent "
+    "(e.g. autogpt) or a developer tool (e.g. cursor.exe, Code.exe, python.exe), not "
+    "necessarily a person. All evidence is already redacted; never ask for raw values.\n"
+    "Rules:\n"
+    "- Base the summary strictly on 'agent_context' and 'score_breakdown'. Name the process "
+    "(source) and the provider. Do not invent facts that are not in the input (no users, "
+    "teams, breaches, systems or timelines that are not given).\n"
+    "- The summary is exactly two sentences: first what happened, then why it matters.\n"
+    "- Remediation: 3 to 5 concrete steps, each tied to a finding category or score factor that "
+    "is actually present in the input; never include a step for a category that is absent "
+    "(e.g. no data-protection-officer step unless there is a PII finding). Examples: AWS key -> deactivate and rotate it in IAM and review "
+    "CloudTrail for its use; other API keys/tokens -> revoke and reissue at that provider; "
+    "PII -> notify the data protection officer and request deletion from the provider; "
+    "agent shell execution or sensitive file read -> restrict the agent's shell and "
+    "filesystem permissions (deny .env, ~/.aws, ~/.ssh); exfiltration chain -> stop and "
+    "isolate the agent session; unsanctioned provider (sanctioned=false) -> block egress or "
+    "send it for allowlist review. Do not add generic advice such as training or audits.\n"
     "Respond with JSON only, no prose and no code fences, exactly in this shape: "
     '{"sensitivity": "critical|high|medium|low", '
-    '"summary": "two sentences explaining what happened and why it matters", '
-    '"remediation": ["3 to 5 concrete, actionable steps for a security admin"]}'
+    '"summary": "two sentences: what the process did with which provider, and why it matters", '
+    '"remediation": ["3 to 5 concrete steps"]}'
 )
 
 # Offline remediation, most urgent first
@@ -134,6 +150,24 @@ def _parse_llm_json(text: str) -> dict:
     }
 
 
+_PII_STEP_WORDS = re.compile(r"(?i)data protection officer|\bdpo\b|personal data|\bpii\b|gdpr|dpdp")
+_SHADOW_STEP_WORDS = re.compile(r"(?i)allowlist|whitelist|block (?:the )?egress|block egress")
+
+
+def _drop_unsupported_steps(result: dict, llm_input: dict) -> dict:
+    """Small models sometimes add steps the facts don't support: a privacy-officer step with
+    no PII finding, or an allowlist/egress-block step for an approved provider. Drop those."""
+    has_pii = any(f.get("category") == "PII" for f in llm_input["findings"])
+    steps = [
+        s for s in result["remediation"]
+        if (has_pii or not _PII_STEP_WORDS.search(s))
+        and (llm_input.get("sanctioned") is False or not _SHADOW_STEP_WORDS.search(s))
+    ]
+    if len(steps) < 3:  # keep 3-5 steps: top up from the rule-based steps for this incident
+        steps += [s for s in offline_analysis(llm_input)["remediation"] if s not in steps][: 3 - len(steps)]
+    return {**result, "remediation": steps}
+
+
 def _call_featherless(llm_input: dict, api_key: str, model: str) -> dict:
     from openai import OpenAI  # imported lazily so offline mode works without the package
 
@@ -148,7 +182,7 @@ def _call_featherless(llm_input: dict, api_key: str, model: str) -> dict:
             {"role": "user", "content": "Incident (redacted):\n" + json.dumps(llm_input, ensure_ascii=False)},
         ],
     )
-    return _parse_llm_json(response.choices[0].message.content or "")
+    return _drop_unsupported_steps(_parse_llm_json(response.choices[0].message.content or ""), llm_input)
 
 
 def analyze_incident(incident: dict) -> dict:
