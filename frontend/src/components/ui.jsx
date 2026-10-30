@@ -127,7 +127,7 @@ export function PrivacyBadge({ className = "" }) {
       <span className="text-approved/50">·</span>
       <span>Evidence redacted</span>
       <span className="text-approved/50">·</span>
-      <span>Payloads never stored</span>
+      <span>Keyed fingerprints</span>
     </div>
   );
 }

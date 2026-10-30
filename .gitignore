@@ -2,3 +2,6 @@ venv/
 __pycache__/
 *.db
 .env
+
+# Local HMAC key for finding fingerprints (generated on first run; never commit)
+backend/.fingerprint_key

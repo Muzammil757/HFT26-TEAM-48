@@ -152,19 +152,52 @@ def _parse_llm_json(text: str) -> dict:
 
 _PII_STEP_WORDS = re.compile(r"(?i)data protection officer|\bdpo\b|personal data|\bpii\b|gdpr|dpdp")
 _SHADOW_STEP_WORDS = re.compile(r"(?i)allowlist|whitelist|block (?:the )?egress|block egress")
+_CREDENTIAL_STEP_WORDS = re.compile(
+    r"(?i)\brotat|\brevok|\breissue|deactivat|invalidat|api key|access key|\bkeys?\b|\btokens?\b"
+    r"|credential|secret|cloudtrail|\biam\b|signing"
+)
+_AGENT_STEP_WORDS = re.compile(
+    r"(?i)\.env\b|\.ssh|~/\.aws|\.aws/|file ?system|\bshell\b|deny ?list|permission|isolate|"
+    r"agent session|human approval"
+)
+_AGENT_FACTORS = ("Agent shell execution", "Sensitive file read", "Exfiltration chain")
 
 
 def _drop_unsupported_steps(result: dict, llm_input: dict) -> dict:
-    """Small models sometimes add steps the facts don't support: a privacy-officer step with
-    no PII finding, or an allowlist/egress-block step for an approved provider. Drop those."""
-    has_pii = any(f.get("category") == "PII" for f in llm_input["findings"])
+    """Small models sometimes add steps the facts don't support. Drop:
+    - privacy-officer / PII steps without a PII finding,
+    - allowlist / egress-block steps for an approved provider,
+    - key-rotation / credential steps without a Credential (or high-entropy) finding,
+    - file / shell / agent-permission steps without agent activity (an AgentAction
+      finding, or a shell / sensitive-read / chain factor, which come from
+      shell_exec and file_read events)."""
+    categories = {f.get("category") for f in llm_input["findings"]}
+    factors = [b.get("factor") or "" for b in llm_input["score_breakdown"]]
+    has_pii = "PII" in categories
+    has_credential = bool(categories & {"Credential", "HighEntropy"})
+    has_agent = "AgentAction" in categories or any(f.startswith(_AGENT_FACTORS) for f in factors)
     steps = [
         s for s in result["remediation"]
         if (has_pii or not _PII_STEP_WORDS.search(s))
         and (llm_input.get("sanctioned") is False or not _SHADOW_STEP_WORDS.search(s))
+        and (has_credential or not _CREDENTIAL_STEP_WORDS.search(s))
+        and (has_agent or not _AGENT_STEP_WORDS.search(s))
     ]
-    if len(steps) < 3:  # keep 3-5 steps: top up from the rule-based steps for this incident
-        steps += [s for s in offline_analysis(llm_input)["remediation"] if s not in steps][: 3 - len(steps)]
+    if len(steps) < 3:
+        # Keep 3-5 steps: top up from the rule-based steps for this incident, skipping
+        # any whose topic (PII, egress, credentials, agent) is already covered.
+        topics = {
+            "pii": _PII_STEP_WORDS, "shadow": _SHADOW_STEP_WORDS,
+            "credential": _CREDENTIAL_STEP_WORDS, "agent": _AGENT_STEP_WORDS,
+        }
+        covered = {name for name, rx in topics.items() for s in steps if rx.search(s)}
+        for extra in offline_analysis(llm_input)["remediation"]:
+            if len(steps) >= 3:
+                break
+            extra_topics = {name for name, rx in topics.items() if rx.search(extra)}
+            if extra not in steps and not (extra_topics & covered):
+                steps.append(extra)
+                covered |= extra_topics
     return {**result, "remediation": steps}
 
 

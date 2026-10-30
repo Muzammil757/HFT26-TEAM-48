@@ -7,10 +7,14 @@ secret is detected exactly once.
 
 import base64
 import hashlib
+import hmac
 import json
 import math
+import os
 import re
+import secrets
 from collections import Counter
+from pathlib import Path
 
 SENSITIVE_PATHS = [".env", ".ssh/", "id_rsa", ".aws/credentials", ".aws/config",
                    "/etc/passwd", "/etc/shadow", ".npmrc", ".pypirc", ".git-credentials", ".kube/config"]
@@ -122,8 +126,37 @@ def _jwt_header_valid(token: str) -> bool:
 # Redaction helpers
 # ---------------------------------------------------------------------------
 
+_FINGERPRINT_KEY_FILE = Path(__file__).parent / ".fingerprint_key"
+_fingerprint_key_cache: bytes | None = None
+
+
+def _fingerprint_key() -> bytes:
+    """Secret for keyed fingerprints: env FINGERPRINT_KEY, else a random 32-byte key
+    generated on first use and kept in backend/.fingerprint_key (git-ignored).
+    The key is never logged and never leaves this machine."""
+    global _fingerprint_key_cache
+    if _fingerprint_key_cache is None:
+        env_key = os.environ.get("FINGERPRINT_KEY", "")
+        if env_key:
+            _fingerprint_key_cache = env_key.encode("utf-8")
+        elif _FINGERPRINT_KEY_FILE.exists():
+            _fingerprint_key_cache = bytes.fromhex(_FINGERPRINT_KEY_FILE.read_text().strip())
+        else:
+            key = secrets.token_bytes(32)
+            _FINGERPRINT_KEY_FILE.write_text(key.hex())
+            try:
+                os.chmod(_FINGERPRINT_KEY_FILE, 0o600)
+            except OSError:
+                pass  # best effort on Windows
+            _fingerprint_key_cache = key
+    return _fingerprint_key_cache
+
+
 def _fingerprint(value: str) -> str:
-    return hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
+    """Keyed fingerprint: the same value gives the same fingerprint on this install (so
+    repeat leaks are recognised), but without the key it cannot be brute-forced, even
+    for short values such as phone numbers."""
+    return hmac.new(_fingerprint_key(), value.encode("utf-8"), hashlib.sha256).hexdigest()[:12]
 
 
 def _redact_credential(value: str) -> str:
@@ -266,6 +299,14 @@ def _scrub(text: str) -> str:
     return text
 
 
+def _sensitive_target(args: str) -> str:
+    """The argument token that names a sensitive file (falls back to the matched entry)."""
+    for token in re.split(r"[\s\"'`;|&<>]+", args):
+        if any(p in token for p in SENSITIVE_PATHS):
+            return token[:60]
+    return next((p for p in SENSITIVE_PATHS if p in args), "a sensitive file")
+
+
 def _agent_findings(payload: str) -> list[dict]:
     try:
         data = json.loads(payload)
@@ -281,8 +322,12 @@ def _agent_findings(payload: str) -> list[dict]:
         if not rules:
             continue
         clean = _scrub(args)
-        evidence = f"{name}: {clean[:40]}" + ("…" if len(clean) > 40 else "")
         for rule in rules:
+            if rule == "Agent_Sensitive_File_Read":
+                # Name the file that was read, e.g. "run_shell → reads ~/.aws/credentials".
+                evidence = f"{name} → reads {_sensitive_target(clean)}"
+            else:
+                evidence = f"{name}: {clean[:40]}" + ("…" if len(clean) > 40 else "")
             if (rule, evidence) not in seen:
                 seen.add((rule, evidence))
                 found.append({"category": AGENT_ACTION, "rule": rule, "redacted_evidence": evidence,

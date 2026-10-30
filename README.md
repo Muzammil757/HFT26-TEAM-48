@@ -72,7 +72,7 @@ ShadowGuard never intercepts or decrypts TLS. It has two input tiers:
 
 - **Payloads are never stored.** Each payload is scanned, then redacted in memory using the finding offsets; only event metadata is written. The `events` table has no payload column.
 - **Findings keep redacted evidence only.** Credentials are shown as first 4 + `*` + last 4 (`AKIA************MPLE`), PII as all but the last 4 (`XXXX XXXX 3346`, `p***@example.com`), private keys as `-----BEGIN RSA PRIVATE KEY----- [redacted]`.
-- **Fingerprints stay local.** Each finding stores a fingerprint, the first 12 hex characters of SHA-256 of the matched value, so a repeat leak of the same key can be recognised. Fingerprints are stored in the local database but are **not** sent to the LLM. The dashboard hides fingerprints of personal data, because a short value such as a phone number can be recovered from its hash by brute force (see Limitations).
+- **Fingerprints are keyed and stay local.** Each finding stores a fingerprint, the first 12 hex characters of HMAC-SHA256 of the matched value. The same value always gets the same fingerprint on this install, so "this key leaked 4 times" still works. Without the key, nobody can recover a value from its fingerprint, not even a short one like a phone number. The key comes from the `FINGERPRINT_KEY` environment variable, or a random 32-byte key generated on first run in `backend/.fingerprint_key`. That file is git-ignored, never logged, and never leaves this machine. Fingerprints are stored locally and are **not** sent to the LLM.
 - **The LLM sees only redacted fields:** `provider`, `sanctioned`, `source`, `severity`, `score_breakdown`, `agent_context`, and each finding's `category` / `rule` / `redacted_evidence`. The server logs exactly what it sends, once per call, so this can be shown live.
 - **Local only.** The API binds to `127.0.0.1`; the database is a single local, git-ignored file. The Featherless call is the only outbound request, and only when an admin clicks *Analyze with AI*.
 
@@ -123,6 +123,7 @@ npm run dev                     # http://127.0.0.1:5173
 | `FEATHERLESS_API_KEY`, `FEATHERLESS_MODEL` | unset | Enable the Featherless LLM for *Analyze with AI*; otherwise offline rules are used. |
 | `COLLECTOR_ENABLED` | `1` | Set to `0` to turn off the live connection collector (e.g. if the OS blocks `psutil`). |
 | `SEED_MOCK` | unset | Set to `1` to seed `frontend/src/mocks/mock_incidents.json` into an empty database. |
+| `FINGERPRINT_KEY` | unset | Secret for keyed fingerprints. If unset, a random key is generated once into `backend/.fingerprint_key` (git-ignored). |
 | `DEV_RELOAD` | unset | Set to `1` for Uvicorn auto-reload during development. Off by default because on Windows a reload can leave an old worker serving stale code. |
 
 PowerShell: `$env:COLLECTOR_ENABLED="0"; python main.py` · bash: `COLLECTOR_ENABLED=0 python main.py`
@@ -230,7 +231,7 @@ Events are grouped into sessions (`session_id`, else `source:pid`) and each touc
 - **Payload inspection only for request logs and plaintext traffic** (such as local Ollama). Live HTTPS traffic is identified by metadata only, never decrypted.
 - **Live Gemini detection is off.** Google's API shares IP addresses with Drive, Docs and other Google services, so matching by IP would misreport ordinary Google traffic as Gemini. Logged Gemini requests are still classified.
 - **Shared CDN addresses.** Live detection of other cloud providers matches by IP address as well, so traffic to a different site behind the same CDN address can be misattributed.
-- **Fingerprints are unsalted, truncated SHA-256.** They are fine for spotting repeats, but for low-entropy values (such as phone numbers) they can be reversed by brute force. Keep the database local.
+- **Fingerprints are keyed HMACs; the key never leaves this machine.** Anyone holding both the database and `backend/.fingerprint_key` could brute-force short values such as phone numbers, so keep the two separate. Deleting the key makes all existing fingerprints unmatchable. New ones won't match old ones, but nothing else breaks.
 - **Detection is rule-based.** It covers the patterns listed above, not every secret format.
 - **Single machine.** No authentication, no multi-user support and no blocking or enforcement, by design for this prototype.
 

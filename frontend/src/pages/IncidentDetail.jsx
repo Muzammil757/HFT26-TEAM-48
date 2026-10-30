@@ -320,6 +320,7 @@ function IncidentDetail({ id }) {
 
   const s = severityOf(incident.severity);
   const findings = incident.findings || [];
+  const agentEvents = (incident.events || []).filter((e) => e.event_type === "file_read" || e.event_type === "shell_exec");
   // The backend stores the analysis, so a poll after it arrived still showing no
   // ai_analysis means the incident changed and the backend cleared it. Until that
   // next poll, the local copy is simply newer than the polled data.
@@ -373,10 +374,10 @@ function IncidentDetail({ id }) {
 
       <Card
         title="Detected findings"
-        subtitle="Redacted evidence only; raw values are never stored. Fingerprints are hidden for personal data."
+        subtitle="Redacted evidence only; raw values are never stored. Fingerprints are keyed HMACs."
         icon={Fingerprint}
       >
-        {findings.length === 0 ? (
+        {findings.length === 0 && agentEvents.length === 0 ? (
           <EmptyState icon={Fingerprint} title="No findings in this session yet" hint="Agent actions alone can still raise the score." />
         ) : (
           <div className="overflow-x-auto">
@@ -400,14 +401,22 @@ function IncidentDetail({ id }) {
                     </td>
                     <td className="mono px-6 py-3 text-xs text-muted">{finding.rule}</td>
                     <td className="mono px-6 py-3 text-xs text-medium">{finding.redacted_evidence}</td>
-                    <td className="mono px-6 py-3 text-xs text-subtle">
-                      {/* A short hash of a phone or ID number can be brute-forced; don't display it. */}
-                      {finding.category === "PII" && finding.fingerprint ? (
-                        <span title="Hidden: hashes of short personal data can be reversed by brute force">hidden</span>
-                      ) : (
-                        finding.fingerprint || "—"
-                      )}
+                    <td className="mono px-6 py-3 text-xs text-subtle">{finding.fingerprint || "—"}</td>
+                  </tr>
+                ))}
+                {/* Agent activity recorded as events (file reads, shell commands): evidence too,
+                    though not produced by the payload scanner. */}
+                {agentEvents.map((event) => (
+                  <tr key={`event-${event.event_id}`}>
+                    <td className="px-6 py-3 text-sm text-fg">
+                      <span className="inline-flex items-center gap-2">
+                        <span className={`h-2 w-2 rounded-full ${CATEGORY_DOT.AgentAction}`} />
+                        Agent event
+                      </span>
                     </td>
+                    <td className="mono px-6 py-3 text-xs text-muted">{event.event_type}</td>
+                    <td className="mono px-6 py-3 text-xs text-medium">{event.destination || "—"}</td>
+                    <td className="mono px-6 py-3 text-xs text-subtle">—</td>
                   </tr>
                 ))}
               </tbody>
