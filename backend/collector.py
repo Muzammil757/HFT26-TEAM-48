@@ -3,6 +3,7 @@
 Passively monitors active network connections using psutil to detect processes
 connecting to known AI providers or local LLM instances (Ollama on 11434, LM Studio on 1234).
 No SSL decryption, no packet inspection: inspects connection metadata only.
+Uses only psutil + Python standard library.
 """
 
 import socket
@@ -16,7 +17,7 @@ try:
 except ImportError:
     psutil = None
 
-# Section 7: Known AI provider hosts and ports
+# Section 7: Known AI provider hosts and local ports
 KNOWN_AI_HOSTS = [
     "api.openai.com",
     "api.anthropic.com",
@@ -27,14 +28,14 @@ KNOWN_AI_HOSTS = [
 ]
 LOCAL_AI_PORTS = {11434, 1234}
 
-# Caches for fast, non-blocking resolution
+# DNS caches for fast, non-blocking resolution
 _dns_cache: dict[str, str] = {}
 _ip_to_known_host: dict[str, str] = {}
 _last_forward_resolve = 0.0
 
 
 def _refresh_known_ip_cache() -> None:
-    """Resolve known hostnames to their IP addresses to identify outbound connections even without reverse DNS PTR."""
+    """Resolve known hostnames to IP addresses so outbound connections match instantly."""
     global _last_forward_resolve
     now = time.time()
     if now - _last_forward_resolve < 300.0:  # Refresh every 5 minutes
@@ -51,8 +52,8 @@ def _refresh_known_ip_cache() -> None:
 
 
 def _resolve_remote_host(ip: str) -> str:
-    """Get the hostname for an IP address using cached forward/reverse resolution.
-    Non-blocking: if not cached, launches a daemon worker and returns IP immediately."""
+    """Get the hostname for an IP address using cached reverse DNS (socket.gethostbyaddr).
+    Non-blocking: if not in cache, spawns a background resolution thread and returns IP."""
     if ip in ("127.0.0.1", "::1", "0.0.0.0"):
         return "localhost"
     if ip in _ip_to_known_host:
@@ -60,23 +61,23 @@ def _resolve_remote_host(ip: str) -> str:
     if ip in _dns_cache:
         return _dns_cache[ip]
 
-    # Initialize cache with IP and asynchronously resolve in background
+    # Initialize cache entry with IP immediately
     _dns_cache[ip] = ip
 
-    def _async_resolve(target_ip: str) -> None:
+    def _async_reverse_dns(target_ip: str) -> None:
         try:
             resolved = socket.gethostbyaddr(target_ip)[0]
             _dns_cache[target_ip] = resolved
         except Exception:
             pass
 
-    threading.Thread(target=_async_resolve, args=(ip,), daemon=True).start()
+    threading.Thread(target=_async_reverse_dns, args=(ip,), daemon=True).start()
     return ip
 
 
 def _matches_ai_provider(r_ip: str, r_port: int) -> tuple[bool, str]:
     """Check if the connection matches any Section 7 provider by port, IP, or reverse DNS."""
-    # 1. Local AI services (Ollama on 11434, LM Studio on 1234)
+    # 1. Local LLM servers (Ollama on 11434, LM Studio on 1234)
     if r_port in LOCAL_AI_PORTS:
         return True, "localhost"
 
@@ -88,7 +89,7 @@ def _matches_ai_provider(r_ip: str, r_port: int) -> tuple[bool, str]:
     if r_ip in _ip_to_known_host:
         return True, _ip_to_known_host[r_ip]
 
-    # 3. Cached reverse DNS check
+    # 3. Cached reverse DNS check via socket.gethostbyaddr
     host = _resolve_remote_host(r_ip)
     lower_host = host.lower()
     for known in KNOWN_AI_HOSTS:
@@ -110,7 +111,7 @@ def _collector_loop(
 
     seen_connections: set[tuple[int | None, str, int]] = set()
 
-    # Initial resolution of known AI host IPs
+    # Pre-populate known AI host IPs
     _refresh_known_ip_cache()
 
     while stop_event is None or not stop_event.is_set():
@@ -118,7 +119,7 @@ def _collector_loop(
             _refresh_known_ip_cache()
             connections = psutil.net_connections(kind="inet")
         except psutil.AccessDenied:
-            # On Windows/Linux, AccessDenied may occur if unprivileged; wait and retry
+            # On Windows/macOS/Linux, AccessDenied may occur for restricted processes
             time.sleep(interval)
             continue
         except Exception as e:
@@ -130,7 +131,7 @@ def _collector_loop(
             if not conn.raddr:
                 continue
 
-            # Skip closed sockets in TIME_WAIT or without PID on Windows
+            # Skip closed sockets in TIME_WAIT or without PID
             if conn.status == "TIME_WAIT" or conn.pid == 0:
                 continue
 
@@ -143,13 +144,13 @@ def _collector_loop(
             if not is_ai:
                 continue
 
-            # Deduplicate by (pid, remote_ip, remote_port)
+            # Deduplicate by (pid, remote ip, remote port)
             conn_key = (pid, r_ip, r_port)
             if conn_key in seen_connections:
                 continue
             seen_connections.add(conn_key)
 
-            # Retrieve process name
+            # Retrieve process name (catch AccessDenied / NoSuchProcess)
             source_name = "unknown"
             if pid:
                 try:
@@ -160,9 +161,7 @@ def _collector_loop(
                 except Exception:
                     source_name = "unknown"
 
-            # Clean IP for event_id
-            clean_ip = r_ip.replace(".", "").replace(":", "")
-            event_id = f"live_{pid}_{clean_ip}_{r_port}"
+            event_id = f"live_{pid}_{r_ip}_{r_port}"
             now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
             event = {
@@ -217,27 +216,20 @@ def start_collector(
 
 if __name__ == "__main__":
     print("=" * 70)
-    print(" ShadowGuard AI - Passive Network Connection Collector (Standalone)")
-    print(" Press Ctrl+C to stop.")
+    print(" ShadowGuard AI - Passive Network Connection Collector")
+    print(" Running standalone with ingest_fn=print for 60 seconds...")
     print("=" * 70)
 
-    def print_ingest(events: list[dict]) -> None:
-        for ev in events:
-            print(f"[EVENT] ID: {ev['event_id']}")
-            print(f"        Time:        {ev['timestamp']}")
-            print(f"        Process:     {ev['source']} (PID: {ev['pid']})")
-            print(f"        Type:        {ev['event_type']}")
-            print(f"        Destination: {ev['destination']}:{ev['dst_port']}")
-            print("-" * 50)
-
     stop_evt = threading.Event()
-    collector_thread = start_collector(ingest_fn=print_ingest, interval=3.0, stop_event=stop_evt)
+    collector_thread = start_collector(ingest_fn=print, interval=3.0, stop_event=stop_evt)
 
     try:
-        while True:
-            time.sleep(1.0)
+        # Run standalone for 60 seconds
+        time.sleep(60.0)
     except KeyboardInterrupt:
-        print("\nStopping collector...")
+        print("\nInterrupted early by user.")
+    finally:
+        print("\n[*] Stopping collector daemon thread...")
         stop_evt.set()
         collector_thread.join(timeout=2.0)
-        print("Collector stopped.")
+        print("[+] Collector finished.")
