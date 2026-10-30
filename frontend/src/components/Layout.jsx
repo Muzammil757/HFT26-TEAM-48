@@ -1,5 +1,4 @@
 
-import { useEffect, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import {
   Activity,
@@ -9,7 +8,7 @@ import {
   ShieldAlert,
   WifiOff,
 } from "lucide-react";
-import { getPollingOfflineStatus } from "../hooks/usePolling";
+import { useBackendOffline } from "../hooks/usePolling";
 
 const navigation = [
   {
@@ -33,30 +32,7 @@ const navigation = [
 ];
 
 export default function Layout() {
-  const [backendOffline, setBackendOffline] = useState(
-    getPollingOfflineStatus,
-  );
-
-  useEffect(() => {
-    const handleBackendStatus = (event) => {
-      setBackendOffline(Boolean(event.detail?.offline));
-    };
-
-    window.addEventListener(
-      "shadowguard:backend-status",
-      handleBackendStatus,
-    );
-
-    // Recheck after subscribing in case polling status changed during mount.
-    setBackendOffline(getPollingOfflineStatus());
-
-    return () => {
-      window.removeEventListener(
-        "shadowguard:backend-status",
-        handleBackendStatus,
-      );
-    };
-  }, []);
+  const backendOffline = useBackendOffline();
 
   return (
     <div className="flex min-h-screen bg-zinc-950 text-zinc-100">

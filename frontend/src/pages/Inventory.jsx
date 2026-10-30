@@ -10,6 +10,12 @@ import {
 } from "lucide-react";
 import { getStats } from "../api";
 import usePolling from "../hooks/usePolling";
+import {
+  LivePill,
+  PageHeader,
+  PageShell,
+  ProviderStatusBadge,
+} from "../components/ui.jsx";
 
 function formatNumber(value) {
   return new Intl.NumberFormat("en-IN").format(Number(value) || 0);
@@ -96,39 +102,22 @@ function EmptyState({ searched, shadowOnly }) {
   );
 }
 
-function StatusBadge({ sanctioned }) {
-  if (sanctioned === true) {
-    return (
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-400">
-        <ShieldCheck size={13} />
-        Approved
-      </span>
-    );
-  }
-
-  return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-red-500/25 bg-red-500/10 px-2.5 py-1 text-[11px] font-medium text-red-400">
-      <ShieldOff size={13} />
-      SHADOW
-    </span>
-  );
-}
-
-function SummaryCard({ label, value, icon: Icon, color }) {
+function SummaryCard({ label, value, hint, icon: Icon, color }) {
   const colors = {
     cyan: "bg-cyan-400/10 text-cyan-400",
     red: "bg-red-400/10 text-red-400",
     green: "bg-emerald-400/10 text-emerald-400",
+    zinc: "bg-zinc-700/40 text-zinc-300",
   };
 
   return (
-    <div className="flex min-w-0 items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900/70 p-4">
+    <div className="panel flex min-w-0 items-center gap-3 p-4" title={hint}>
       <div className={`rounded-lg p-2.5 ${colors[color] || colors.cyan}`}>
         <Icon size={18} />
       </div>
       <div className="min-w-0">
         <p className="text-xs text-zinc-500">{label}</p>
-        <p className="mt-1 text-xl font-semibold tabular-nums text-zinc-100">
+        <p className="mt-0.5 text-xl font-semibold tabular-nums text-zinc-50">
           {formatNumber(value)}
         </p>
       </div>
@@ -172,36 +161,23 @@ export default function Inventory() {
     });
   }, [inventory, search, shadowOnly]);
 
-  const shadowCount = inventory.filter((item) => !item.sanctioned).length;
-  const approvedCount = inventory.filter((item) => item.sanctioned).length;
+  // Cards count unique process names; one process can use several providers.
+  const processes = new Set(inventory.map((item) => item.source));
+  const shadowProcesses = new Set(
+    inventory.filter((item) => !item.sanctioned).map((item) => item.source),
+  );
+  const approvedOnly = [...processes].filter((source) => !shadowProcesses.has(source));
   const initialLoading = loading && stats == null;
   const hasError = Boolean(error) && stats == null;
 
   return (
-    <div className="min-h-full bg-zinc-950 text-zinc-100">
-      <div className="mx-auto max-w-[1600px] space-y-5 p-4 sm:p-5 lg:p-6">
-        <header className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <Activity size={20} className="text-cyan-400" />
-              <h1 className="text-xl font-semibold tracking-tight">
-                Shadow AI Inventory
-              </h1>
-            </div>
-            <p className="mt-1 max-w-2xl text-xs text-zinc-500">
-              Discover AI providers used by local processes and identify
-              unapproved services.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2 rounded-full border border-zinc-800 bg-zinc-900 px-3 py-1.5">
-            <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-40" />
-              <span className="relative h-2 w-2 rounded-full bg-emerald-400" />
-            </span>
-            <span className="text-xs text-zinc-400">Refreshes every 3s</span>
-          </div>
-        </header>
+    <PageShell>
+        <PageHeader
+          icon={Activity}
+          title="Shadow AI Inventory"
+          subtitle="Which local processes talk to which AI providers, from connection metadata only"
+          actions={<LivePill />}
+        />
 
         {initialLoading ? (
           <div className="rounded-xl border border-zinc-800 bg-zinc-900/50">
@@ -213,32 +189,42 @@ export default function Inventory() {
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
               <SummaryCard
-                label="Detected Processes"
-                value={inventory.length}
+                label="Detected processes"
+                value={processes.size}
+                hint="Unique process names seen talking to an AI provider"
                 icon={Activity}
                 color="cyan"
               />
               <SummaryCard
-                label="Shadow Processes"
-                value={shadowCount}
+                label="Using shadow AI"
+                value={shadowProcesses.size}
+                hint="Processes that used at least one unapproved provider"
                 icon={ShieldOff}
                 color="red"
               />
               <SummaryCard
-                label="Approved Processes"
-                value={approvedCount}
+                label="Approved only"
+                value={approvedOnly.length}
+                hint="Processes that only used approved providers"
                 icon={ShieldCheck}
                 color="green"
               />
+              <SummaryCard
+                label="Process–provider pairs"
+                value={inventory.length}
+                hint="Rows in the table below"
+                icon={SlidersHorizontal}
+                color="zinc"
+              />
             </div>
 
-            <section className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/60">
+            <section className="panel overflow-hidden">
               <div className="flex flex-col gap-3 border-b border-zinc-800 p-4 lg:flex-row lg:items-center lg:justify-between">
                 <div>
                   <h2 className="text-sm font-semibold text-zinc-100">
-                    Detected Processes
+                    Process → provider
                   </h2>
                   <p className="mt-1 text-xs text-zinc-500">
                     Grouped by process source and provider
@@ -284,7 +270,7 @@ export default function Inventory() {
                   <span className="font-medium text-zinc-300">
                     {inventory.length}
                   </span>{" "}
-                  processes
+                  pairs
                 </p>
 
                 <p className="flex items-center gap-1.5 text-[11px] text-zinc-500">
@@ -322,15 +308,15 @@ export default function Inventory() {
                     </thead>
 
                     <tbody className="divide-y divide-zinc-800/70">
-                      {filteredInventory.map((item, index) => (
+                      {filteredInventory.map((item) => (
                         <tr
-                          key={`${item.source}-${item.provider}-${index}`}
+                          key={`${item.source}-${item.provider}`}
                           className="transition hover:bg-zinc-800/30"
                         >
                           <td className="max-w-[260px] px-5 py-3.5">
                             <p
                               title={item.source}
-                              className="truncate text-sm font-medium text-zinc-200"
+                              className="mono truncate text-sm font-medium text-zinc-200"
                             >
                               {item.source}
                             </p>
@@ -350,7 +336,7 @@ export default function Inventory() {
                           </td>
 
                           <td className="px-5 py-3.5">
-                            <StatusBadge sanctioned={item.sanctioned} />
+                            <ProviderStatusBadge sanctioned={item.sanctioned} />
                           </td>
 
                           <td className="px-5 py-3.5 text-right">
@@ -380,7 +366,7 @@ export default function Inventory() {
 
               <div className="flex flex-wrap items-center justify-between gap-2 border-t border-zinc-800 px-4 py-3">
                 <p className="text-[11px] text-zinc-600">
-                  Shadow processes are listed first.
+                  Shadow rows are listed first.
                 </p>
                 <p className="text-[11px] text-zinc-600">
                   Metadata only · No payloads persisted
@@ -389,7 +375,6 @@ export default function Inventory() {
             </section>
           </>
         )}
-      </div>
-    </div>
+    </PageShell>
   );
 }

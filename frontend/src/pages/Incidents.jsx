@@ -1,210 +1,182 @@
 import { useMemo, useState } from "react";
-import { AlertTriangle, ArrowUpRight, Filter, Link2 } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, Filter } from "lucide-react";
 import { Link } from "react-router-dom";
 import { getIncidents } from "../api.js";
 import usePolling from "../hooks/usePolling.js";
+import {
+  ChainBadge,
+  LivePill,
+  PageHeader,
+  PageShell,
+  ProviderStatusBadge,
+  ScoreMeter,
+  SeverityBadge,
+  formatDateTime,
+  severityOf,
+  useHighlights,
+} from "../components/ui.jsx";
 
-const severityStyles = {
-  critical: "border-red-400/20 bg-red-400/10 text-red-300",
-  high: "border-orange-400/20 bg-orange-400/10 text-orange-300",
-  medium: "border-amber-400/20 bg-amber-400/10 text-amber-300",
-  low: "border-zinc-600 bg-zinc-800 text-zinc-300"
-};
+// Incidents are only created at score >= 3, so "low" never occurs.
+const SEVERITIES = ["critical", "high", "medium"];
 
 export default function Incidents() {
-  const { data: incidents, error, loading } = usePolling(
-    getIncidents,
-    3000
-  );
+  const { data: incidents, error, loading } = usePolling(getIncidents, 3000);
   const [severityFilter, setSeverityFilter] = useState("all");
+
+  const highlighted = useHighlights(
+    incidents,
+    (incident) => incident.incident_id,
+    (incident) => incident.risk_score,
+  );
 
   const filteredIncidents = useMemo(() => {
     const rows = incidents || [];
-
-    if (severityFilter === "all") {
-      return rows;
-    }
-
-    return rows.filter(
-      (incident) => incident.severity === severityFilter
-    );
+    return severityFilter === "all"
+      ? rows
+      : rows.filter((incident) => incident.severity === severityFilter);
   }, [incidents, severityFilter]);
 
-  function formatTimestamp(value) {
-    const date = new Date(value);
-
-    return Number.isNaN(date.getTime())
-      ? value
-      : date.toLocaleString();
-  }
+  const toggleFilter = (severity) =>
+    setSeverityFilter((current) => (current === severity ? "all" : severity));
 
   return (
-    <div className="space-y-6">
-      <section className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-400">
-            Threat detection
-          </p>
-          <h1 className="mt-2 text-2xl font-semibold tracking-tight text-white sm:text-3xl">
-            Security Incidents
-          </h1>
-          <p className="mt-2 text-sm leading-6 text-zinc-400">
-            Review correlated findings, explainable risk scores, and
-            agent-related activity.
-          </p>
-        </div>
+    <PageShell>
+      <PageHeader
+        icon={AlertTriangle}
+        title="Security Incidents"
+        subtitle="Correlated findings with explainable risk scores and agent activity"
+        actions={
+          <>
+            <label className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-400">
+              <Filter size={14} />
+              <span>Severity</span>
+              <select
+                value={severityFilter}
+                onChange={(event) => setSeverityFilter(event.target.value)}
+                className="bg-transparent text-zinc-200 outline-none"
+              >
+                <option value="all" className="bg-zinc-900">All</option>
+                {SEVERITIES.map((severity) => (
+                  <option key={severity} value={severity} className="bg-zinc-900">
+                    {severityOf(severity).label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <LivePill />
+          </>
+        }
+      />
 
-        <label className="flex w-fit items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs text-zinc-400">
-          <Filter size={14} />
-          <span>Severity</span>
-          <select
-            value={severityFilter}
-            onChange={(event) => setSeverityFilter(event.target.value)}
-            className="bg-transparent text-zinc-200 outline-none"
-          >
-            <option value="all" className="bg-zinc-900">
-              All
-            </option>
-            <option value="critical" className="bg-zinc-900">
-              Critical
-            </option>
-            <option value="high" className="bg-zinc-900">
-              High
-            </option>
-            <option value="medium" className="bg-zinc-900">
-              Medium
-            </option>
-            <option value="low" className="bg-zinc-900">
-              Low
-            </option>
-          </select>
-        </label>
-      </section>
-
-      {error && (
-        <div className="rounded-xl border border-red-400/20 bg-red-400/5 p-4 text-sm text-red-300">
-          Could not load incidents: {error}
+      {error && incidents == null && (
+        <div role="alert" className="rounded-xl border border-red-400/20 bg-red-400/5 p-4 text-sm text-red-300">
+          Could not load incidents: {error.message || String(error)}
         </div>
       )}
 
-      <section className="grid gap-4 sm:grid-cols-3">
-        {["critical", "high", "medium"].map((severity) => (
-          <div className="panel p-5" key={severity}>
-            <p className="text-xs capitalize text-zinc-500">
-              {severity} severity
-            </p>
-            <p className="mt-2 text-2xl font-semibold text-white">
-              {(incidents || []).filter(
-                (incident) => incident.severity === severity
-              ).length}
-            </p>
-          </div>
-        ))}
+      <section className="grid grid-cols-3 gap-3">
+        {SEVERITIES.map((severity) => {
+          const s = severityOf(severity);
+          const count = (incidents || []).filter((incident) => incident.severity === severity).length;
+          const selected = severityFilter === severity;
+          return (
+            <button
+              type="button"
+              key={severity}
+              onClick={() => toggleFilter(severity)}
+              aria-pressed={selected}
+              className={`panel flex items-center justify-between p-4 text-left transition hover:border-zinc-600 ${
+                selected ? "!border-cyan-400/40" : ""
+              }`}
+            >
+              <div>
+                <p className="text-xs font-medium text-zinc-400">{s.label} severity</p>
+                <p className={`tabular mt-1 text-2xl font-semibold ${count ? s.text : "text-zinc-600"}`}>
+                  {incidents == null ? "—" : count}
+                </p>
+              </div>
+              <span className={`h-8 w-1 rounded-full ${s.bar} ${count ? "" : "opacity-20"}`} />
+            </button>
+          );
+        })}
       </section>
 
       <section className="panel overflow-hidden">
-        <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
+        <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
           <div>
-            <h2 className="text-sm font-semibold text-zinc-100">
-              Incident queue
-            </h2>
-            <p className="mt-1 text-xs text-zinc-500">
+            <h2 className="text-sm font-semibold text-zinc-100">Incident queue</h2>
+            <p className="mt-0.5 text-xs text-zinc-500">
               {filteredIncidents.length} matching incident
-              {filteredIncidents.length === 1 ? "" : "s"}
+              {filteredIncidents.length === 1 ? "" : "s"} · newest first
             </p>
           </div>
-          <span className="rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-[10px] text-zinc-400">
-            AUTO-REFRESH · 3S
-          </span>
         </div>
 
-        {loading && !incidents ? (
-          <div className="p-8 text-center text-sm text-zinc-500">
-            Loading incidents…
+        {!incidents ? (
+          <div className="p-10 text-center text-sm text-zinc-500">
+            {loading ? "Loading incidents…" : "Waiting for the backend…"}
           </div>
         ) : filteredIncidents.length === 0 ? (
           <div className="p-10 text-center">
-            <AlertTriangle size={25} className="mx-auto text-zinc-600" />
+            <AlertTriangle size={24} className="mx-auto text-zinc-600" />
             <p className="mt-3 text-sm text-zinc-400">
-              No incidents match this filter.
+              {incidents?.length ? "No incidents match this filter." : "No incidents yet."}
             </p>
           </div>
         ) : (
           <div className="divide-y divide-zinc-800">
-            {filteredIncidents.map((incident) => (
-              <Link
-                key={incident.incident_id}
-                to={`/incidents/${incident.incident_id}`}
-                className="flex flex-col gap-4 px-5 py-5 transition hover:bg-zinc-900/60 lg:flex-row lg:items-center"
-              >
-                <div className="flex min-w-0 flex-1 items-start gap-3">
-                  <div
-                    className={`mt-0.5 rounded-lg border p-2 ${
-                      severityStyles[incident.severity] ||
-                      severityStyles.low
-                    }`}
-                  >
-                    <AlertTriangle size={17} />
+            {filteredIncidents.map((incident) => {
+              const s = severityOf(incident.severity);
+              const flash = highlighted.has(incident.incident_id);
+              return (
+                <Link
+                  key={incident.incident_id}
+                  to={`/incidents/${encodeURIComponent(incident.incident_id)}`}
+                  className={`group flex items-center gap-4 px-4 py-3.5 transition-colors hover:bg-zinc-800/40 ${flash ? "flash" : ""}`}
+                >
+                  <div className={`rounded-lg border p-2 ${s.icon}`}>
+                    <AlertTriangle size={16} />
                   </div>
 
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span
-                        className={`rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${
-                          severityStyles[incident.severity] ||
-                          severityStyles.low
-                        }`}
-                      >
-                        {incident.severity}
-                      </span>
-
-                      {incident.is_chain && (
-                        <span className="inline-flex items-center gap-1 rounded-full border border-amber-400/20 bg-amber-400/5 px-2 py-1 text-[10px] font-medium text-amber-300">
-                          <Link2 size={11} />
-                          Exfiltration chain
-                        </span>
-                      )}
+                      <SeverityBadge severity={incident.severity} />
+                      {incident.is_chain && <ChainBadge />}
+                      <ProviderStatusBadge sanctioned={incident.sanctioned} />
                     </div>
 
-                    <p className="mt-2 text-sm font-medium leading-6 text-zinc-200">
+                    <p className="mt-1.5 truncate text-sm font-medium text-zinc-200 group-hover:text-cyan-300">
                       {incident.agent_context}
                     </p>
 
-                    <p className="mt-1 text-xs text-zinc-500">
-                      <span className="mono">{incident.source}</span>
-                      <span className="mx-2 text-zinc-700">→</span>
+                    <p className="mt-0.5 truncate text-xs text-zinc-500">
+                      <span className="mono text-zinc-400">{incident.source}</span>
+                      <span className="mx-1.5 text-zinc-600">→</span>
                       {incident.provider}
-                      <span className="mx-2 text-zinc-700">·</span>
-                      {formatTimestamp(incident.timestamp)}
-                    </p>
-
-                    <p className="mono mt-2 truncate text-[10px] text-zinc-600">
-                      {incident.incident_id}
+                      <span className="mx-1.5 text-zinc-700">·</span>
+                      {formatDateTime(incident.timestamp)}
+                      <span className="mx-1.5 text-zinc-700">·</span>
+                      <span className="mono text-zinc-600">{String(incident.incident_id).slice(0, 8)}</span>
                     </p>
                   </div>
-                </div>
 
-                <div className="flex shrink-0 items-center justify-between gap-5 border-t border-zinc-800 pt-3 lg:border-0 lg:pt-0">
-                  <div>
-                    <p className="text-[10px] uppercase tracking-wider text-zinc-500">
-                      Risk score
-                    </p>
-                    <p className="mono mt-1 text-xl font-semibold text-white">
-                      {incident.risk_score}
+                  <div className="w-24 shrink-0 text-right">
+                    <p className={`mono text-xl font-semibold ${s.text}`}>
+                      <span key={incident.risk_score} className={flash ? "score-pop" : ""}>
+                        {incident.risk_score}
+                      </span>
                       <span className="text-sm text-zinc-600">/10</span>
                     </p>
+                    <ScoreMeter score={incident.risk_score} severity={incident.severity} className="mt-1" />
                   </div>
 
-                  <ArrowUpRight
-                    size={17}
-                    className="text-zinc-500"
-                  />
-                </div>
-              </Link>
-            ))}
+                  <ArrowUpRight size={16} className="shrink-0 text-zinc-600 group-hover:text-cyan-400" />
+                </Link>
+              );
+            })}
           </div>
         )}
       </section>
-    </div>
+    </PageShell>
   );
 }

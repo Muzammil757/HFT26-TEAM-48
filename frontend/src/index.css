@@ -82,6 +82,67 @@ button:disabled {
   background-size: 32px 32px;
 }
 
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Highlight a row that just appeared or whose score changed. */
+@keyframes sg-flash {
+  0% {
+    background-color: rgb(34 211 238 / 14%);
+    box-shadow: inset 3px 0 0 #22d3ee;
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: inset 3px 0 0 transparent;
+  }
+}
+
+.flash {
+  animation: sg-flash 2.4s ease-out;
+}
+
+/* A score that just changed. */
+@keyframes sg-pop {
+  0% {
+    transform: scale(1.18);
+    text-shadow: 0 0 18px currentColor;
+  }
+  100% {
+    transform: scale(1);
+    text-shadow: none;
+  }
+}
+
+.score-pop {
+  display: inline-block;
+  animation: sg-pop 0.7s ease-out;
+}
+
+/* A new breakdown factor or timeline event sliding in. */
+@keyframes sg-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.enter {
+  animation: sg-enter 0.45s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flash,
+  .score-pop,
+  .enter {
+    animation: none;
+  }
+}
+
 button:focus-visible,
 a:focus-visible,
 select:focus-visible {

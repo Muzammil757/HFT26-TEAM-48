@@ -24,7 +24,10 @@ async function request(path, options = {}) {
       // Keep the HTTP status message if the response is not JSON.
     }
 
-    throw new Error(message);
+    // The server answered, so this is not a connectivity failure (see usePolling).
+    const error = new Error(message);
+    error.status = response.status;
+    throw error;
   }
 
   return response.json();
