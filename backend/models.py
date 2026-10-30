@@ -330,17 +330,37 @@ def insert_incident(
 def upsert_incident(incident: Incident, session_key: str, db_path: Path = DB_PATH) -> str:
     """Insert the session's incident, or update the existing one in place.
 
-    An existing incident keeps its incident_id and ai_analysis; every correlator-derived
-    field and its findings are replaced. Returns the stored incident_id.
+    An existing incident keeps its incident_id; every correlator-derived field and its
+    findings are replaced. Its ai_analysis is kept unless the risk_score or the set of
+    findings changed, in which case it is cleared (the cached analysis is stale).
+    Returns the stored incident_id.
     """
     with get_connection(db_path) as conn:
         row = conn.execute(
-            "SELECT incident_id FROM incidents WHERE session_key = ? ORDER BY timestamp LIMIT 1",
+            """
+            SELECT incident_id, risk_score FROM incidents
+            WHERE session_key = ? ORDER BY timestamp LIMIT 1
+            """,
             (session_key,),
         ).fetchone()
         if row is not None:
             incident_id = row["incident_id"]
+            old_findings = {
+                tuple(r) for r in conn.execute(
+                    """
+                    SELECT category, rule, redacted_evidence, event_id, fingerprint
+                    FROM findings WHERE incident_id = ?
+                    """,
+                    (incident_id,),
+                )
+            }
+            new_findings = {
+                (f.category, f.rule, f.redacted_evidence, f.event_id, f.fingerprint)
+                for f in incident.findings
+            }
             cols = _incident_columns(incident)
+            if row["risk_score"] != incident.risk_score or old_findings != new_findings:
+                cols["ai_analysis"] = None
             conn.execute(
                 f"UPDATE incidents SET {', '.join(f'{c} = ?' for c in cols)} WHERE incident_id = ?",
                 [*cols.values(), incident_id],
