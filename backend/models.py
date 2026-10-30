@@ -4,7 +4,7 @@ import json
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from pydantic import BaseModel, Field, ValidationError
@@ -109,7 +109,8 @@ def init_db(db_path: Path = DB_PATH) -> None:
                 severity        TEXT NOT NULL,
                 score_breakdown TEXT NOT NULL DEFAULT '[]',  -- JSON array of {factor, points}
                 is_chain        INTEGER NOT NULL DEFAULT 0,
-                ai_analysis     TEXT                          -- JSON string from analyzer, or NULL
+                ai_analysis     TEXT,                         -- JSON string from analyzer, or NULL
+                session_key     TEXT                          -- internal: one incident per session
             );
 
             CREATE TABLE IF NOT EXISTS findings (
@@ -134,12 +135,27 @@ def init_db(db_path: Path = DB_PATH) -> None:
                 path        TEXT,
                 session_id  TEXT,
                 provider    TEXT,
-                sanctioned  INTEGER
+                sanctioned  INTEGER,
+                session_key TEXT NOT NULL  -- session_id or "source:pid"
+            );
+
+            -- Per-event findings so sessions can be re-correlated across batches.
+            -- Redacted evidence and fingerprints only: no offsets, no raw values.
+            CREATE TABLE IF NOT EXISTS event_findings (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id          TEXT NOT NULL REFERENCES events(event_id) ON DELETE CASCADE,
+                category          TEXT NOT NULL,
+                rule              TEXT NOT NULL,
+                redacted_evidence TEXT NOT NULL,
+                fingerprint       TEXT
             );
 
             CREATE INDEX IF NOT EXISTS idx_findings_incident ON findings(incident_id);
             CREATE INDEX IF NOT EXISTS idx_incidents_timestamp ON incidents(timestamp);
+            CREATE INDEX IF NOT EXISTS idx_incidents_session ON incidents(session_key);
             CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp);
+            CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_key);
+            CREATE INDEX IF NOT EXISTS idx_event_findings_event ON event_findings(event_id);
             """
         )
 
@@ -148,18 +164,31 @@ def _bool_or_none(value: int | None) -> bool | None:
     return None if value is None else bool(value)
 
 
-def insert_event(event: RawEvent, db_path: Path = DB_PATH) -> None:
-    """Save an event's metadata. The payload is never stored.
+def session_key_for(event: RawEvent) -> str:
+    """Correlation key: the explicit session_id, else "source:pid"."""
+    return event.session_id or f"{event.source}:{event.pid}"
 
-    Re-ingesting the same event_id (e.g. demo_agent.py replaying a file) replaces the row.
+
+def _parse_ts(ts: str) -> datetime:
+    return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+
+
+def insert_event(
+    event: RawEvent, findings: list[dict] | None = None, db_path: Path = DB_PATH
+) -> None:
+    """Save an event's metadata and its findings. The payload is never stored.
+
+    Re-ingesting the same event_id (e.g. demo_agent.py replaying a file) replaces the
+    row and its findings.
     """
     with get_connection(db_path) as conn:
+        conn.execute("DELETE FROM event_findings WHERE event_id = ?", (event.event_id,))
         conn.execute(
             """
             INSERT OR REPLACE INTO events
                 (event_id, timestamp, source, event_type, pid, destination,
-                 dst_port, path, session_id, provider, sanctioned)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 dst_port, path, session_id, provider, sanctioned, session_key)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 event.event_id,
@@ -173,47 +202,155 @@ def insert_event(event: RawEvent, db_path: Path = DB_PATH) -> None:
                 event.session_id,
                 event.provider,
                 None if event.sanctioned is None else int(event.sanctioned),
-            ),
-        )
-
-
-def insert_incident(incident: Incident, db_path: Path = DB_PATH) -> None:
-    """Insert an incident and its findings. IDs must be unique (correlator uses uuid4)."""
-    with get_connection(db_path) as conn:
-        conn.execute(
-            """
-            INSERT INTO incidents
-                (incident_id, timestamp, risk_score, provider, trigger_events, agent_context,
-                 source, sanctioned, severity, score_breakdown, is_chain, ai_analysis)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                incident.incident_id,
-                incident.timestamp.isoformat().replace("+00:00", "Z"),
-                incident.risk_score,
-                incident.provider,
-                json.dumps(incident.trigger_events),
-                incident.agent_context,
-                incident.source,
-                int(incident.sanctioned),
-                incident.severity,
-                json.dumps(incident.score_breakdown),
-                int(incident.is_chain),
-                incident.ai_analysis,
+                session_key_for(event),
             ),
         )
         conn.executemany(
             """
-            INSERT INTO findings
-                (incident_id, category, rule, redacted_evidence, event_id, fingerprint)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO event_findings (event_id, category, rule, redacted_evidence, fingerprint)
+            VALUES (?, ?, ?, ?, ?)
             """,
             [
-                (incident.incident_id, f.category, f.rule, f.redacted_evidence,
-                 f.event_id, f.fingerprint)
-                for f in incident.findings
+                (event.event_id, f["category"], f["rule"], f["redacted_evidence"],
+                 f.get("fingerprint"))
+                for f in findings or []
             ],
         )
+
+
+def fetch_session(
+    session_key: str, window: timedelta = timedelta(minutes=10), db_path: Path = DB_PATH
+) -> tuple[list[RawEvent], dict[str, list[dict]]]:
+    """Rebuild a session for correlate_events from the DB.
+
+    Returns the session's events within `window` of its newest event (time-ordered,
+    payload None) and findings_by_event in the scan_payload dict shape (no offsets).
+    """
+    with get_connection(db_path) as conn:
+        event_rows = conn.execute(
+            "SELECT * FROM events WHERE session_key = ?", (session_key,)
+        ).fetchall()
+        finding_rows = conn.execute(
+            """
+            SELECT f.* FROM event_findings f JOIN events e ON e.event_id = f.event_id
+            WHERE e.session_key = ? ORDER BY f.id
+            """,
+            (session_key,),
+        ).fetchall()
+    if not event_rows:
+        return [], {}
+
+    event_rows = sorted(event_rows, key=lambda r: _parse_ts(r["timestamp"]))
+    cutoff = _parse_ts(event_rows[-1]["timestamp"]) - window
+    events = [
+        RawEvent(
+            event_id=r["event_id"],
+            timestamp=r["timestamp"],
+            source=r["source"],
+            event_type=r["event_type"],
+            pid=r["pid"],
+            destination=r["destination"],
+            payload_visible=False,  # payloads are never stored
+            payload=None,
+            dst_port=r["dst_port"],
+            path=r["path"],
+            session_id=r["session_id"],
+            provider=r["provider"],
+            sanctioned=_bool_or_none(r["sanctioned"]),
+        )
+        for r in event_rows
+        if _parse_ts(r["timestamp"]) >= cutoff
+    ]
+
+    kept = {e.event_id for e in events}
+    findings_by_event: dict[str, list[dict]] = {}
+    for r in finding_rows:
+        if r["event_id"] in kept:
+            findings_by_event.setdefault(r["event_id"], []).append(
+                {
+                    "category": r["category"],
+                    "rule": r["rule"],
+                    "redacted_evidence": r["redacted_evidence"],
+                    "start": None,
+                    "end": None,
+                    "fingerprint": r["fingerprint"],
+                    "event_id": r["event_id"],
+                }
+            )
+    return events, findings_by_event
+
+
+def _incident_columns(incident: Incident) -> dict:
+    """Column values derived by the correlator (everything except id and ai_analysis)."""
+    return {
+        "timestamp": incident.timestamp.isoformat().replace("+00:00", "Z"),
+        "risk_score": incident.risk_score,
+        "provider": incident.provider,
+        "trigger_events": json.dumps(incident.trigger_events),
+        "agent_context": incident.agent_context,
+        "source": incident.source,
+        "sanctioned": int(incident.sanctioned),
+        "severity": incident.severity,
+        "score_breakdown": json.dumps(incident.score_breakdown),
+        "is_chain": int(incident.is_chain),
+    }
+
+
+def _insert_findings(conn: sqlite3.Connection, incident_id: str, findings: list[Finding]) -> None:
+    conn.executemany(
+        """
+        INSERT INTO findings
+            (incident_id, category, rule, redacted_evidence, event_id, fingerprint)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (incident_id, f.category, f.rule, f.redacted_evidence, f.event_id, f.fingerprint)
+            for f in findings
+        ],
+    )
+
+
+def insert_incident(
+    incident: Incident, session_key: str | None = None, db_path: Path = DB_PATH
+) -> None:
+    """Insert an incident and its findings. IDs must be unique (correlator uses uuid4)."""
+    cols = _incident_columns(incident) | {
+        "incident_id": incident.incident_id,
+        "ai_analysis": incident.ai_analysis,
+        "session_key": session_key,
+    }
+    with get_connection(db_path) as conn:
+        conn.execute(
+            f"INSERT INTO incidents ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
+            list(cols.values()),
+        )
+        _insert_findings(conn, incident.incident_id, incident.findings)
+
+
+def upsert_incident(incident: Incident, session_key: str, db_path: Path = DB_PATH) -> str:
+    """Insert the session's incident, or update the existing one in place.
+
+    An existing incident keeps its incident_id and ai_analysis; every correlator-derived
+    field and its findings are replaced. Returns the stored incident_id.
+    """
+    with get_connection(db_path) as conn:
+        row = conn.execute(
+            "SELECT incident_id FROM incidents WHERE session_key = ? ORDER BY timestamp LIMIT 1",
+            (session_key,),
+        ).fetchone()
+        if row is not None:
+            incident_id = row["incident_id"]
+            cols = _incident_columns(incident)
+            conn.execute(
+                f"UPDATE incidents SET {', '.join(f'{c} = ?' for c in cols)} WHERE incident_id = ?",
+                [*cols.values(), incident_id],
+            )
+            conn.execute("DELETE FROM findings WHERE incident_id = ?", (incident_id,))
+            _insert_findings(conn, incident_id, incident.findings)
+            return incident_id
+
+    insert_incident(incident, session_key, db_path)
+    return incident.incident_id
 
 
 def _row_to_incident(row: sqlite3.Row, findings: list[Finding]) -> Incident:
@@ -393,7 +530,7 @@ def seed_from_file(json_path: Path, db_path: Path = DB_PATH) -> int:
     inserted = 0
     for item in json.loads(json_path.read_text(encoding="utf-8")):
         try:
-            insert_incident(Incident.model_validate(item), db_path)
+            insert_incident(Incident.model_validate(item), db_path=db_path)
             inserted += 1
         except ValidationError as exc:
             print(f"[seed] Skipping {item.get('incident_id')}: {exc.error_count()} contract errors")

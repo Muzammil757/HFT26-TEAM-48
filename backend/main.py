@@ -16,11 +16,13 @@ from models import (
     RawEvent,
     fetch_incident,
     fetch_incidents,
+    fetch_session,
     fetch_stats,
     init_db,
     insert_event,
-    insert_incident,
     seed_from_file,
+    session_key_for,
+    upsert_incident,
 )
 from providers import classify
 
@@ -65,28 +67,36 @@ def get_stats() -> dict:
 
 @app.post("/api/ingest")
 def ingest(events: list[RawEvent]) -> dict:
-    """Classify, scan and redact each event, save its metadata, then correlate
-    the batch into incidents and persist those incidents.
+    """Classify, scan and redact each event, save its metadata and findings, then
+    re-correlate every session the batch touched using that session's stored history.
+
+    Re-correlating from the DB lets a chain build up across single-event batches
+    (demo_agent.py), and upserting by session keeps one incident per session.
     """
     print(f"[ingest] Received {len(events)} events")
 
-    findings_by_event: dict[str, list[dict]] = {}
+    touched_sessions: list[str] = []
     for event in events:
         event.provider, event.sanctioned = classify(event.destination, event.dst_port, event.path)
+        findings: list[dict] = []
         if event.payload_visible and event.payload:
             findings = scan_payload(event.payload)
             for f in findings:
                 f["event_id"] = event.event_id
-            findings_by_event[event.event_id] = findings
             event.payload = mask_secrets(event.payload, findings)
-        insert_event(event)  # metadata only, payload NOT stored
+        insert_event(event, findings)  # metadata + redacted findings only, payload NOT stored
+        key = session_key_for(event)
+        if key not in touched_sessions:
+            touched_sessions.append(key)
 
-    incidents = correlate_events(events, findings_by_event)
-    for incident in incidents:
-        insert_incident(incident)
-    print(f"[ingest] Saved {len(incidents)} incidents")
+    incident_ids: list[str] = []
+    for key in touched_sessions:
+        session_events, findings_by_event = fetch_session(key)
+        for incident in correlate_events(session_events, findings_by_event):
+            incident_ids.append(upsert_incident(incident, key))
+    print(f"[ingest] Saved {len(incident_ids)} incidents across {len(touched_sessions)} sessions")
 
-    return {"status": "success", "processed": len(events), "incidents": len(incidents)}
+    return {"status": "success", "processed": len(events), "incidents": len(incident_ids)}
 
 
 if __name__ == "__main__":
