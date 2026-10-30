@@ -10,9 +10,10 @@ def scan_payload(payload: str) -> list[dict]:
     return []
 
 
-def mask_secrets(payload: str) -> str:
-    """Return the payload with any detected secrets redacted.
+def mask_secrets(payload: str, findings: list[dict]) -> str:
+    """Return the payload with each finding's [start:end] span replaced by [REDACTED:<rule>].
 
+    Uses the offsets from scan_payload(); no second regex pass.
     TODO: implement redaction.
     """
     return payload
