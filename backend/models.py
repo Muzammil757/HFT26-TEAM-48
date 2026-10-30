@@ -22,6 +22,19 @@ class Finding(BaseModel):
     redacted_evidence: str
 
 
+class RawEvent(BaseModel):
+    """A single proxy log event as received by POST /api/ingest."""
+
+    event_id: str
+    timestamp: str
+    source: str
+    event_type: str
+    pid: int | None = None
+    destination: str | None = None
+    payload_visible: bool
+    payload: str | None = None
+
+
 class Incident(BaseModel):
     incident_id: str
     timestamp: datetime

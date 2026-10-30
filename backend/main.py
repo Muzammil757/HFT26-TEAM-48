@@ -4,10 +4,10 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI, Request, status
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from models import Incident, fetch_incidents, init_db, seed_from_file
+from models import Incident, RawEvent, fetch_incidents, init_db, seed_from_file
 
 MOCK_DATA = Path(__file__).parent.parent / "frontend" / "mock_incidents.json"
 
@@ -34,16 +34,15 @@ def get_incidents() -> list[Incident]:
     return fetch_incidents()
 
 
-@app.post("/api/ingest", status_code=status.HTTP_202_ACCEPTED)
-async def ingest(request: Request) -> dict:
-    """Placeholder: accepts raw JSONL log data (one JSON event per line).
+@app.post("/api/ingest")
+def ingest(events: list[RawEvent]) -> dict:
+    """Accept a batch of raw proxy log events.
 
-    TODO: parse each line, run detection rules, correlate into incidents,
+    TODO: run detection rules, correlate into incidents,
     and persist via models.insert_incident().
     """
-    body = (await request.body()).decode("utf-8", errors="replace")
-    lines = [line for line in body.splitlines() if line.strip()]
-    return {"status": "accepted", "lines_received": len(lines)}
+    print(f"[ingest] Received {len(events)} events")
+    return {"status": "success", "processed": len(events)}
 
 
 if __name__ == "__main__":
