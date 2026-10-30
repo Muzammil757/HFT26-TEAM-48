@@ -4,7 +4,7 @@ Generates live AI traffic to give collector.py real connections to detect:
 1. Calls http://localhost:11434/api/generate with a small prompt if Ollama is running,
    else prints "Ollama not running, skipping".
 2. Opens plain TCP sockets (no HTTP, no keys) to api.openai.com:443 and
-   api-inference.huggingface.co:443 and holds them open for 10 seconds.
+   huggingface.co:443 and holds them open for 10 seconds.
 Uses only Python standard library + requests.
 """
 
@@ -83,11 +83,11 @@ def run_simulation(hold_seconds: float = 10.0) -> None:
     if s_openai:
         sockets.append(s_openai)
 
-    # Hugging Face socket
+    # Hugging Face socket (prefer huggingface.co directly)
     s_hf = open_tcp_socket(
-        "api-inference.huggingface.co",
+        "huggingface.co",
         443,
-        fallback_host="huggingface.co",
+        fallback_host="api-inference.huggingface.co",
     )
     if s_hf:
         sockets.append(s_hf)

@@ -18,15 +18,25 @@ except ImportError:
     psutil = None
 
 # Section 7: Known AI provider hosts and local ports
+# Preferred host for Hugging Face is huggingface.co (api-inference subdomain is deprecated)
 KNOWN_AI_HOSTS = [
     "api.openai.com",
     "api.anthropic.com",
-    "api-inference.huggingface.co",
     "huggingface.co",
     "api.featherless.ai",
-    "generativelanguage.googleapis.com",
 ]
 LOCAL_AI_PORTS = {11434, 1234}
+
+# Dedicated AI hosts for forward IP resolution.
+# NOTE: generativelanguage.googleapis.com is strictly EXCLUDED from IP matching
+# because it resolves to shared Google infrastructure IPs (which would misclassify
+# Google Drive sync, Google Docs, etc. as Gemini Shadow traffic).
+IP_RESOLVE_HOSTS = [
+    "api.openai.com",
+    "api.anthropic.com",
+    "huggingface.co",
+    "api.featherless.ai",
+]
 
 # DNS caches for fast, non-blocking resolution
 _dns_cache: dict[str, str] = {}
@@ -35,13 +45,14 @@ _last_forward_resolve = 0.0
 
 
 def _refresh_known_ip_cache() -> None:
-    """Resolve known hostnames to IP addresses so outbound connections match instantly."""
+    """Resolve dedicated AI provider hostnames to IP addresses.
+    Google Gemini is excluded from this list to prevent false positives on shared Google IPs."""
     global _last_forward_resolve
     now = time.time()
     if now - _last_forward_resolve < 300.0:  # Refresh every 5 minutes
         return
     _last_forward_resolve = now
-    for host in KNOWN_AI_HOSTS:
+    for host in IP_RESOLVE_HOSTS:
         try:
             addr_info = socket.getaddrinfo(host, 443, family=socket.AF_INET)
             for item in addr_info:
@@ -61,7 +72,7 @@ def _resolve_remote_host(ip: str) -> str:
     if ip in _dns_cache:
         return _dns_cache[ip]
 
-    # Initialize cache entry with IP immediately
+    # Initialize cache entry with IP immediately to prevent blocking
     _dns_cache[ip] = ip
 
     def _async_reverse_dns(target_ip: str) -> None:
@@ -85,13 +96,22 @@ def _matches_ai_provider(r_ip: str, r_port: int) -> tuple[bool, str]:
     if r_port != 443:
         return False, r_ip
 
-    # 2. Fast check: IP is in pre-resolved known provider IP cache
+    # 2. Fast check: IP is in pre-resolved dedicated AI provider IP cache (OpenAI, Anthropic, Hugging Face, Featherless)
     if r_ip in _ip_to_known_host:
         return True, _ip_to_known_host[r_ip]
 
     # 3. Cached reverse DNS check via socket.gethostbyaddr
     host = _resolve_remote_host(r_ip)
     lower_host = host.lower()
+
+    # Rule: Only match Google Gemini if reverse DNS of remote IP explicitly contains "generativelanguage"
+    if "generativelanguage" in lower_host:
+        return True, "generativelanguage.googleapis.com"
+
+    # Rule: Prefer huggingface.co for any Hugging Face domain/subdomain
+    if "huggingface.co" in lower_host:
+        return True, "huggingface.co"
+
     for known in KNOWN_AI_HOSTS:
         if lower_host == known or lower_host.endswith("." + known):
             return True, known
@@ -131,8 +151,9 @@ def _collector_loop(
             if not conn.raddr:
                 continue
 
-            # Skip closed sockets in TIME_WAIT or without PID
-            if conn.status == "TIME_WAIT" or conn.pid == 0:
+            # 1. Only ingest connections with status == "ESTABLISHED"
+            # (Prevents refused/closed port attempts to 11434 from being recorded as Ollama traffic)
+            if conn.status != "ESTABLISHED" or not conn.pid:
                 continue
 
             r_ip = conn.raddr.ip
