@@ -1,5 +1,6 @@
 """ShadowGuard AI backend API."""
 
+import json
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -8,9 +9,25 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from correlator import correlate_events
-from detectors import mask_secrets, scan_payload
-from models import (
+
+def load_env_file(path: Path) -> None:
+    """Minimal .env loader: KEY=VALUE lines, # comments; never overrides real env vars."""
+    if not path.exists():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        os.environ.setdefault(key.strip(), value.strip().strip("\"'"))
+
+
+load_env_file(Path(__file__).parent / ".env")
+
+from analyzer import analyze_incident, build_llm_input, offline_analysis  # noqa: E402
+from correlator import correlate_events  # noqa: E402
+from detectors import mask_secrets, scan_payload  # noqa: E402
+from models import (  # noqa: E402
     Incident,
     IncidentDetail,
     RawEvent,
@@ -22,9 +39,10 @@ from models import (
     insert_event,
     seed_from_file,
     session_key_for,
+    set_ai_analysis,
     upsert_incident,
 )
-from providers import classify
+from providers import classify  # noqa: E402
 
 MOCK_DATA = Path(__file__).parent.parent / "frontend" / "mock_incidents.json"
 
@@ -57,6 +75,32 @@ def get_incident(incident_id: str) -> IncidentDetail:
     incident = fetch_incident(incident_id)
     if incident is None:
         raise HTTPException(status_code=404, detail=f"Incident {incident_id} not found")
+    return incident
+
+
+@app.post("/api/incidents/{incident_id}/analyze", response_model=Incident)
+def analyze(incident_id: str) -> Incident:
+    """Return the incident with ai_analysis, computing and caching it if missing.
+
+    The analyzer only receives redacted fields and falls back to offline rules,
+    so this never fails once the incident exists.
+    """
+    incident = fetch_incident(incident_id)
+    if incident is None:
+        raise HTTPException(status_code=404, detail=f"Incident {incident_id} not found")
+    if incident.ai_analysis:
+        print(f"[analyze] {incident_id}: returning cached ai_analysis")
+        return incident
+
+    incident_dict = incident.model_dump(mode="json", exclude={"events"})
+    try:
+        result = analyze_incident(incident_dict)
+    except Exception as exc:  # analyzer already falls back; this is a last-resort guard
+        print(f"[analyze] analyzer raised {type(exc).__name__}: {exc}; using offline rules")
+        result = offline_analysis(build_llm_input(incident_dict))
+    incident.ai_analysis = json.dumps(result, ensure_ascii=False)
+    set_ai_analysis(incident_id, incident.ai_analysis)
+    print(f"[analyze] {incident_id}: stored ai_analysis from {result.get('engine')}")
     return incident
 
 

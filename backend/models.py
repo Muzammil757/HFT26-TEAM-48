@@ -373,6 +373,14 @@ def upsert_incident(incident: Incident, session_key: str, db_path: Path = DB_PAT
     return incident.incident_id
 
 
+def set_ai_analysis(incident_id: str, ai_analysis: str, db_path: Path = DB_PATH) -> None:
+    """Store the analyzer's JSON string on an incident."""
+    with get_connection(db_path) as conn:
+        conn.execute(
+            "UPDATE incidents SET ai_analysis = ? WHERE incident_id = ?", (ai_analysis, incident_id)
+        )
+
+
 def _row_to_incident(row: sqlite3.Row, findings: list[Finding]) -> Incident:
     return Incident(
         incident_id=row["incident_id"],
