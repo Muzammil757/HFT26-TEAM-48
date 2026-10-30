@@ -40,6 +40,7 @@ import {
   formatClock,
   formatDateTime,
   formatNumber,
+  plural,
   severityOf,
   useHighlights,
 } from "../components/ui.jsx";
@@ -371,7 +372,7 @@ export default function Overview() {
                     </p>
                     <p className="truncate text-xs text-subtle">
                       <span className="mono text-muted">{incident.source}</span> → {incident.provider} ·{" "}
-                      {Array.isArray(incident.findings) ? incident.findings.length : 0} findings
+                      {plural(Array.isArray(incident.findings) ? incident.findings.length : 0, "finding")}
                     </p>
                   </div>
                   <div className="w-24 shrink-0 text-right">

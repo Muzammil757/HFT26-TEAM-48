@@ -1,21 +1,30 @@
-```
-+------------------------------------------------+
-|                            +-----------------+
-|                            |      Server    |
-|                            +---------+------+
-|                                      |
-|                            +---------+------+
-|                            |          OpenAI/ |
-|                            |        Anthropic|
-|                            |           Etc. |
-|                            +---------+------+
-|                                      |
-|                            +---------+------+
-|                            | ShadowGuard AI   |
-|                            +---------+------+
-|                                      |
-|                            +---------+------+
-|                            |        Frontend   |
-|                            +---------+------+
-+------------------------------------------------+
-```
+ INPUT A: live collector (collector.py)          INPUT B: HTTP request logs (JSONL)
+ psutil, every 3 s, ESTABLISHED connections       load_demo.py / demo_reset.py (batch)
+ metadata only: process, PID, remote host:port    demo_agent.py (live, one event every 3 s)
+ NO payload, NO decryption                        payload = request body, already plaintext
+                 |                                                  |
+                 | in-process call                                   | POST /api/ingest
+                 +------------------------+-------------------------+
+                                          v
+                      main.py  process_events()   (one lock, shared by both inputs)
+   1. validate_event()     schema, event_type in {ai_request, connection, shell_exec, file_read}
+   2. classify()           host / port / path -> provider + approved or SHADOW      [providers.py]
+   3. scan_payload()       regex + validators + entropy + agent tool_calls          [detectors.py]
+   4. mask_secrets()       redact by offsets IN MEMORY; payload is then dropped     [detectors.py]
+   5. insert_event()       metadata + redacted findings + fingerprint (no payload)  [models.py]
+   6. fetch_session()      reload each touched session (last 10 min) from SQLite    [models.py]
+   7. correlate_events()   group by session, score, detect read -> leak chain       [correlator.py]
+   8. upsert_incident()    one incident per session, updated in place              [models.py]
+                                          |
+                                          v
+                     SQLite backend/shadowguard.db (git-ignored, local only)
+                     events | event_findings | incidents | findings  (no payload column)
+                                          |
+        +---------------------------------+-----------------------------------+
+        v                                                                     v
+ GET /api/stats, /api/incidents, /api/incidents/{id}, /api/health   POST /api/incidents/{id}/analyze
+        |                                                                     |
+        v                                                                     v
+ React + Vite dashboard (polls every 3 s)                analyzer.py: redacted fields only
+ Overview . Inventory . Incidents . Detail               -> Featherless LLM (10 s timeout)
+ toasts on new critical incidents / score jumps          -> offline rule engine on failure

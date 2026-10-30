@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { AlertTriangle, ArrowUpRight, CircleAlert, Filter, ListFilter, ShieldCheck } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { getIncidents } from "../api.js";
 import usePolling from "../hooks/usePolling.js";
 import {
@@ -24,7 +24,19 @@ const SEVERITIES = ["critical", "high", "medium"];
 
 export default function Incidents() {
   const { data: incidents, error } = usePolling(getIncidents, 3000, "incidents");
-  const [severityFilter, setSeverityFilter] = useState("all");
+  // The filter lives in the URL (?severity=high) so it survives opening an incident
+  // and coming back.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requested = searchParams.get("severity");
+  const severityFilter = SEVERITIES.includes(requested) ? requested : "all";
+  const setSeverityFilter = (value) =>
+    setSearchParams(value === "all" ? {} : { severity: value }, { replace: true });
+  // Remember it for the detail page's "Back to incidents" link.
+  try {
+    sessionStorage.setItem("sg.incidentsSearch", severityFilter === "all" ? "" : `?severity=${severityFilter}`);
+  } catch {
+    // Storage unavailable (private mode); the filter just won't be restored.
+  }
 
   const highlighted = useHighlights(
     incidents,
@@ -37,7 +49,7 @@ export default function Incidents() {
     return severityFilter === "all" ? rows : rows.filter((incident) => incident.severity === severityFilter);
   }, [incidents, severityFilter]);
 
-  const toggleFilter = (severity) => setSeverityFilter((current) => (current === severity ? "all" : severity));
+  const toggleFilter = (severity) => setSeverityFilter(severityFilter === severity ? "all" : severity);
 
   return (
     <PageShell>

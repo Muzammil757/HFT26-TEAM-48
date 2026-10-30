@@ -47,7 +47,7 @@ export default function Toasts() {
   }, [incidents, dismiss]);
 
   return (
-    <div aria-live="polite" className="pointer-events-none fixed right-6 top-16 z-50 flex w-[360px] flex-col gap-2">
+    <div aria-live="polite" className="pointer-events-none fixed bottom-6 right-6 z-50 flex w-[380px] flex-col-reverse gap-2">
       {toasts.map((t) => {
         const s = severityOf(t.incident.severity);
         const Icon = t.kind === "new" ? Siren : TrendingUp;
@@ -69,7 +69,7 @@ export default function Toasts() {
                 <Icon size={16} />
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-semibold text-fg">
+                <span className="line-clamp-2 block text-sm font-semibold leading-5 text-fg">
                   <span className={s.text}>{s.label.toUpperCase()}</span>
                   <span className="text-subtle"> · </span>
                   <span className="mono">{t.incident.source}</span>

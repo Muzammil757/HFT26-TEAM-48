@@ -66,7 +66,9 @@ export default function Inventory() {
     const query = search.trim().toLowerCase();
     return inventory.filter(
       (item) =>
-        (item.source.toLowerCase().includes(query) || item.provider.toLowerCase().includes(query)) &&
+        (item.source.toLowerCase().includes(query) ||
+          item.provider.toLowerCase().includes(query) ||
+          (item.sanctioned ? "approved" : "shadow").includes(query)) &&
         (!shadowOnly || !item.sanctioned),
     );
   }, [inventory, search, shadowOnly]);
@@ -81,7 +83,7 @@ export default function Inventory() {
     <PageShell>
       <PageHeader
         title="Shadow AI Inventory"
-        subtitle="Which local processes talk to which AI providers, learned from connection metadata only"
+        subtitle="Which local processes talk to which AI providers, from connection metadata and request logs; no decryption"
       />
 
       <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">

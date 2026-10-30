@@ -92,7 +92,7 @@ export default function Layout() {
             <WifiOff size={16} className="shrink-0" />
             <span className="font-semibold">Backend offline.</span>
             <span className="text-critical/80">
-              Showing the last data received. Reconnecting automatically.
+              Data on screen may be out of date. Reconnecting automatically.
             </span>
           </div>
         )}

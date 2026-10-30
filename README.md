@@ -1,47 +1,208 @@
-# ShadowGuard AI Overview
+# ShadowGuard AI
 
-ShadowGuard AI shows which processes on a machine are talking to which AI providers — without decrypting anything — inspects payloads only where plaintext legitimately exists, and catches AI agents that read your secrets and send them out.
+**ShadowGuard AI shows which processes on a machine are talking to which AI providers — without decrypting anything — inspects payloads only where plaintext legitimately exists, and catches AI agents that read your secrets and send them out.**
 
-## Standout Features
-1. Zero-decryption Shadow AI Inventory — a live table of *process → AI provider → approved or SHADOW*, built from connection metadata (process name, PID, destination host/port).
-2. Agentic Exfiltration Chain Detection — when an agent reads a sensitive file (e.g. `.env`, `~/.aws/credentials`), runs a shell command, and then sends a credential to an LLM within 60 seconds, we raise **one** correlated, critical incident and show it as a timeline.
-3. Privacy-preserving AI Triage — the Featherless LLM analyzes incidents and suggests remediation, but **only ever receives redacted evidence and fingerprints, never the raw secret or payload**.
+Built for the *AI Shadow IT & Agentic Data Exfiltration* problem: developers and autonomous agents (Cursor, AutoGPT, custom scripts) paste credentials and personal data into AI tools nobody approved, and a prompt guardrail can't see traffic that happens across local servers, browser tabs and agents.
 
-## Architecture
-![](architecture_diagram.txt)
+![Overview](docs/screenshots/overview.png)
 
-## Setup/Run Commands
+## Three standout features
 
-Backend:
-```bash
-cd backend
-python -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
-export FEATHERLESS_API_KEY=... FEATHERLESS_MODEL=...
-python main.py
-```
+1. **Zero-decryption Shadow AI inventory.** A live table of *process → AI provider → Approved or SHADOW*, built from connection metadata (process name, PID, remote host and port) and request logs. No TLS interception anywhere.
+2. **Agentic exfiltration chain detection.** When an agent reads a sensitive file (`.env`, `~/.aws/credentials`), runs a shell command, and then sends a credential to an LLM within 60 seconds, ShadowGuard raises **one** correlated critical incident and shows it as a timeline — even when the events arrive one at a time.
+3. **Privacy-preserving AI triage.** "Analyze with AI" sends the Featherless LLM only redacted fields (provider, scores, a one-sentence context, redacted evidence) — never a payload, a raw secret or a fingerprint. If the LLM is slow or unavailable, a deterministic rule engine answers instead.
 
-Load Demo Data:
-```bash
-cd backend
-generate_data.py
-cd ../demo_data
-for f in ../demo_data/0*.jsonl; do python load_demo.py "$f"; done
-```
-
-Frontend:
-```bash
-cd frontend && npm install && npm run dev
-```
+Also: explainable 0–10 risk scores with a factor-by-factor breakdown, validators that keep false positives down (Luhn, Verhoeff, JWT header check, entropy exclusions), and India-aware PII detection (Aadhaar, PAN, +91 phone numbers).
 
 ## Screenshots
 
-(Placeholder)
+| Overview | Shadow AI inventory |
+|---|---|
+| ![Overview](docs/screenshots/overview.png) | ![Inventory](docs/screenshots/inventory.png) |
+| **Incidents** | **Toast on a new critical incident** |
+| ![Incidents](docs/screenshots/incidents.png) | ![Critical toast](docs/screenshots/toast_critical.png) |
+| **Incident detail: score 10, chain timeline, AI analysis** | **Backend offline** |
+| ![Incident detail](docs/screenshots/detail_score10.png) | ![Offline](docs/screenshots/offline.png) |
+
+## Architecture
+
+```text
+ INPUT A: live collector (collector.py)          INPUT B: HTTP request logs (JSONL)
+ psutil, every 3 s, ESTABLISHED connections       load_demo.py / demo_reset.py (batch)
+ metadata only: process, PID, remote host:port    demo_agent.py (live, one event every 3 s)
+ NO payload, NO decryption                        payload = request body, already plaintext
+                 |                                                  |
+                 | in-process call                                   | POST /api/ingest
+                 +------------------------+-------------------------+
+                                          v
+                      main.py  process_events()   (one lock, shared by both inputs)
+   1. validate_event()     schema, event_type in {ai_request, connection, shell_exec, file_read}
+   2. classify()           host / port / path -> provider + approved or SHADOW      [providers.py]
+   3. scan_payload()       regex + validators + entropy + agent tool_calls          [detectors.py]
+   4. mask_secrets()       redact by offsets IN MEMORY; payload is then dropped     [detectors.py]
+   5. insert_event()       metadata + redacted findings + fingerprint (no payload)  [models.py]
+   6. fetch_session()      reload each touched session (last 10 min) from SQLite    [models.py]
+   7. correlate_events()   group by session, score, detect read -> leak chain       [correlator.py]
+   8. upsert_incident()    one incident per session, updated in place              [models.py]
+                                          |
+                                          v
+                     SQLite backend/shadowguard.db (git-ignored, local only)
+                     events | event_findings | incidents | findings  (no payload column)
+                                          |
+        +---------------------------------+-----------------------------------+
+        v                                                                     v
+ GET /api/stats, /api/incidents, /api/incidents/{id}, /api/health   POST /api/incidents/{id}/analyze
+        |                                                                     |
+        v                                                                     v
+ React + Vite dashboard (polls every 3 s)                analyzer.py: redacted fields only
+ Overview . Inventory . Incidents . Detail               -> Featherless LLM (10 s timeout)
+ toasts on new critical incidents / score jumps          -> offline rule engine on failure
+```
+
+**Stack:** Python 3.11+ · FastAPI · Uvicorn · Pydantic v2 · SQLite (`sqlite3`) · psutil · `openai` client (Featherless's OpenAI-compatible API) · React + Vite + Tailwind CSS · Recharts · lucide-react.
+
+## How we meet "no SSL decryption"
+
+ShadowGuard never intercepts or decrypts TLS. It has two input tiers:
+
+- **Metadata (always on).** The collector reads `psutil.net_connections()` every 3 seconds and maps each established connection to its process name, PID and remote host/port. Matching hosts and ports (e.g. `api.openai.com:443`, `localhost:11434` for Ollama) against the provider registry tells us *who talks to which AI provider* without reading a single byte of payload.
+- **Payload inspection only where plaintext already exists.** Local LLM servers such as Ollama on `localhost:11434` speak plain HTTP, and organisations already export HTTP request logs from API gateways, SDK logging hooks or egress proxies. ShadowGuard scans those request logs (JSONL). It never decrypts anything to get them.
+
+## Privacy guarantees (as implemented)
+
+- **Payloads are never stored.** Each payload is scanned, then redacted in memory using the finding offsets; only event metadata is written. The `events` table has no payload column.
+- **Findings keep redacted evidence only.** Credentials are shown as first 4 + `*` + last 4 (`AKIA************MPLE`), PII as all but the last 4 (`XXXX XXXX 3346`, `p***@example.com`), private keys as `-----BEGIN RSA PRIVATE KEY----- [redacted]`.
+- **Fingerprints stay local.** Each finding stores a fingerprint, the first 12 hex characters of SHA-256 of the matched value, so a repeat leak of the same key can be recognised. Fingerprints are stored in the local database but are **not** sent to the LLM. The dashboard hides fingerprints of personal data, because a short value such as a phone number can be recovered from its hash by brute force (see Limitations).
+- **The LLM sees only redacted fields:** `provider`, `sanctioned`, `source`, `severity`, `score_breakdown`, `agent_context`, and each finding's `category` / `rule` / `redacted_evidence`. The server logs exactly what it sends, once per call, so this can be shown live.
+- **Local only.** The API binds to `127.0.0.1`; the database is a single local, git-ignored file. The Featherless call is the only outbound request, and only when an admin clicks *Analyze with AI*.
+
+## Setup
+
+Requirements: Python 3.11+, Node.js 20.19+, Google Chrome (or any modern browser).
+
+### Windows (PowerShell)
+
+```powershell
+# Backend
+cd backend
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+Copy-Item .env.example .env     # then edit .env: FEATHERLESS_API_KEY, FEATHERLESS_MODEL
+python main.py                  # http://127.0.0.1:8000  (API docs at /docs)
+
+# Frontend (second terminal)
+cd frontend
+npm install
+npm run dev                     # http://127.0.0.1:5173
+```
+
+### macOS / Linux
+
+```bash
+# Backend
+cd backend
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env            # then edit .env: FEATHERLESS_API_KEY, FEATHERLESS_MODEL
+python main.py                  # http://127.0.0.1:8000  (API docs at /docs)
+
+# Frontend (second terminal)
+cd frontend
+npm install
+npm run dev                     # http://127.0.0.1:5173
+```
+
+`backend/.env` is git-ignored. Never commit a real key. Without a key, *Analyze with AI* uses the built-in offline rules.
+
+### Environment flags
+
+| Variable | Default | Effect |
+|---|---|---|
+| `FEATHERLESS_API_KEY`, `FEATHERLESS_MODEL` | unset | Enable the Featherless LLM for *Analyze with AI*; otherwise offline rules are used. |
+| `COLLECTOR_ENABLED` | `1` | Set to `0` to turn off the live connection collector (e.g. if the OS blocks `psutil`). |
+| `SEED_MOCK` | unset | Set to `1` to seed `frontend/src/mocks/mock_incidents.json` into an empty database. |
+| `DEV_RELOAD` | unset | Set to `1` for Uvicorn auto-reload during development. Off by default because on Windows a reload can leave an old worker serving stale code. |
+
+PowerShell: `$env:COLLECTOR_ENABLED="0"; python main.py` · bash: `COLLECTOR_ENABLED=0 python main.py`
+
+## Demo routine
+
+Before going on stage (and before every rehearsal):
+
+```bash
+cd backend
+# stop the server first, then:
+python demo_reset.py --fresh --load 01 02 03 04 06
+```
+
+This regenerates the demo data with recent timestamps, deletes the database, waits for you to start `python main.py` in another terminal, and then loads scenarios 01–04 and 06. Scenario 05 is not preloaded: it is played live. `--fresh` rewrites `demo_data/*.jsonl`; don't commit those changes.
+
+On stage:
+
+1. **Overview** — AI requests, shadow AI share, open incidents and providers.
+2. **Shadow AI Inventory** — which process uses which provider, approved vs SHADOW.
+3. Run `python demo_agent.py` — the agent-chain incident builds live: score 3 → 6 → 10, with toast notifications.
+4. **Incident detail** — risk gauge 10/10, the score breakdown, and the chain timeline `.env` read → shell command → AWS key sent to OpenAI within seconds.
+5. **Analyze with AI** — Featherless returns a summary and a remediation checklist, from redacted data only.
+6. The false-positive bait file (UUIDs, git SHAs, MD5s, a base64 image, numbers that fail Luhn/Verhoeff) produced zero findings.
+
+Optional live traffic: `python ai_traffic_sim.py` opens real connections to OpenAI and Hugging Face for the collector to detect.
+
+## API
+
+| Method | Path | Returns |
+|---|---|---|
+| POST | `/api/ingest` | Body: JSON list of events. `{"status","processed","incidents","skipped"}`; malformed events are skipped, not fatal. |
+| GET | `/api/incidents` | All incidents, newest first. |
+| GET | `/api/incidents/{id}` | One incident plus its trigger `events` (metadata only). |
+| POST | `/api/incidents/{id}/analyze` | The incident with `ai_analysis` (cached after the first call). `404` if unknown. |
+| GET | `/api/stats` | Totals, incidents by severity, traffic by provider, the process→provider inventory, per-minute timeline. |
+| GET | `/api/health` | `{"status","db","analyzer"}` with `analyzer` = `featherless:<model>` or `offline-rules`. |
+
+Event types: `ai_request`, `connection`, `file_read`, `shell_exec`. Full contracts: Section 6 of `CLAUDE.md`.
+
+## Detection rules
+
+| Category | Rules | Validation |
+|---|---|---|
+| Credential | AWS access key, AWS secret key, OpenAI key, Anthropic key, GitHub token, Hugging Face token, private key block, JWT | OpenAI rule excludes `sk-ant-`; JWT header must decode to JSON with `alg` |
+| PII | Email, Indian phone (+91), PAN, Aadhaar, credit card | Aadhaar: Verhoeff checksum; card: Luhn checksum |
+| HighEntropy | Secret-like strings | Shannon entropy > 4.0; must mix letters and digits; skips UUIDs, hex hashes, base64 images, paths, tokens over 200 chars |
+| AgentAction | Agent shell execution, agent sensitive-file read | Parses OpenAI `tool_calls` and Anthropic `tool_use` blocks in the request body |
+
+Overlaps resolve Credential > PII > HighEntropy, and the longer match wins within a category. Only the first 100 KB of a payload is scanned.
+
+## Risk scoring
+
+Events are grouped into sessions (`session_id`, else `source:pid`) and each touched session is re-scored from its stored history, so a chain is detected even when its events arrive one per request.
+
+| Factor | Points |
+|---|---|
+| Unsanctioned AI provider | +2 |
+| Credential found | +4 |
+| High-entropy secret-like string | +2 |
+| PII detected (1–2 items) / PII detected (3+ items) | +2 / +3 |
+| Agent shell execution | +3 |
+| Sensitive file read | +3 |
+| Exfiltration chain (sensitive read → credential sent within 60 s) | +3 |
+
+`risk_score = min(10, sum)`; each factor counts once. An incident is created at a score of 3 or more. Severity: critical ≥ 8, high 5–7, medium 3–4. Approved providers: OpenAI and Featherless; every other provider is shadow AI.
+
+## Limitations
+
+- **Payload inspection only for request logs and plaintext traffic** (such as local Ollama). Live HTTPS traffic is identified by metadata only, never decrypted.
+- **Live Gemini detection is off.** Google's API shares IP addresses with Drive, Docs and other Google services, so matching by IP would misreport ordinary Google traffic as Gemini. Logged Gemini requests are still classified.
+- **Shared CDN addresses.** Live detection of other cloud providers matches by IP address as well, so traffic to a different site behind the same CDN address can be misattributed.
+- **Fingerprints are unsalted, truncated SHA-256.** They are fine for spotting repeats, but for low-entropy values (such as phone numbers) they can be reversed by brute force. Keep the database local.
+- **Detection is rule-based.** It covers the patterns listed above, not every secret format.
+- **Single machine.** No authentication, no multi-user support and no blocking or enforcement, by design for this prototype.
 
 ## Team
 
-* Member 1: Lead (All backend logic)
-* Member 2: Demo data + live demo script
-* Member 3: Independent testing + README
-* Member 4: Frontend
-* Member 5: Featherless setup, pitch deck, backup demo video
+- **Member 1 — Lead:** backend (ingest, detection, correlation, analyzer, API) and integration.
+- **Member 2:** demo data generator, live demo agent, live connection collector and traffic simulator.
+- **Member 3:** documentation and QA.
+- **Member 4:** frontend dashboard.
+- **Member 5:** Featherless setup and pitch deck.

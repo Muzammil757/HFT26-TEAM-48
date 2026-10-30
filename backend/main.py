@@ -236,4 +236,11 @@ def _process_events(events: list[Any], origin: str) -> dict:
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
+    # Auto-reload is off by default: on Windows a reload can leave the old worker
+    # serving stale code. Opt in for development with DEV_RELOAD=1.
+    uvicorn.run(
+        "main:app",
+        host="127.0.0.1",
+        port=8000,
+        reload=os.environ.get("DEV_RELOAD") == "1",
+    )

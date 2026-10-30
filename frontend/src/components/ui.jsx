@@ -127,7 +127,7 @@ export function PrivacyBadge({ className = "" }) {
       <span className="text-approved/50">·</span>
       <span>Evidence redacted</span>
       <span className="text-approved/50">·</span>
-      <span>Fingerprint only</span>
+      <span>Payloads never stored</span>
     </div>
   );
 }
@@ -195,7 +195,10 @@ export function EmptyState({ icon: Icon, title, hint, className = "" }) {
 
 // ---------------------------------------------------------------- live status
 
-/** Header indicator: pulsing "Monitoring live" or red "Offline". */
+/**
+ * Header indicator: pulsing "API live" or red "Offline". It reflects whether the
+ * local API answers, not whether the optional live collector is enabled.
+ */
 export function LiveIndicator() {
   const offline = useBackendOffline();
   return (
@@ -213,7 +216,7 @@ export function LiveIndicator() {
         <span>Offline · retrying every 3s</span>
       ) : (
         <span>
-          Monitoring live <span className="text-subtle">·</span> <span className="mono">127.0.0.1</span>
+          API live <span className="text-subtle">·</span> <span className="mono">127.0.0.1</span>
         </span>
       )}
     </div>
@@ -390,8 +393,10 @@ export function buildTimeline(rows) {
 
   const first = points[0].t;
   const lastData = points[points.length - 1].t;
+  // Extend to the current minute only while activity is recent (live demo), so a
+  // quiet tail doesn't squash real bars into slivers.
   const nowMinute = Math.floor(Date.now() / MINUTE) * MINUTE;
-  const last = nowMinute > lastData && nowMinute - lastData < 3 * 60 * MINUTE ? nowMinute : lastData;
+  const last = nowMinute > lastData && nowMinute - lastData <= 2 * MINUTE ? nowMinute : lastData;
 
   const minutes = Math.round((last - first) / MINUTE) + 1;
   const step = Math.max(1, Math.ceil(minutes / MAX_BUCKETS)) * MINUTE;
@@ -425,6 +430,16 @@ export function formatClock(value) {
   if (Number.isNaN(date.getTime())) return "";
   return date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
 }
+
+/** Plain-language message for a failed request (no raw "Failed to fetch"). */
+export function errorMessage(error) {
+  if (!error) return "";
+  if (error.status === 404) return "Not found. The database may have been reset.";
+  if (error.status) return error.message || `Request failed (${error.status})`;
+  return "Backend unreachable. Retrying automatically.";
+}
+
+export const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 export function formatGap(seconds) {
   if (seconds == null || Number.isNaN(seconds)) return "";

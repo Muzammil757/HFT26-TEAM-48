@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Activity,
   ArrowLeft,
@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { analyzeIncident, getIncident } from "../api.js";
-import usePolling from "../hooks/usePolling.js";
+import usePolling, { useBackendOffline } from "../hooks/usePolling.js";
 import {
   Card,
   ChainBadge,
@@ -30,6 +30,7 @@ import {
   RiskGauge,
   SeverityBadge,
   Skeleton,
+  errorMessage,
   formatDateTime,
   formatGap,
   severityOf,
@@ -51,7 +52,11 @@ const CATEGORY_DOT = {
 };
 
 // Shade per breakdown segment (same hue = same incident severity).
-const SEGMENT_OPACITY = [1, 0.72, 0.52, 0.38, 0.28, 0.2];
+const SEGMENT_OPACITY = [0.9, 0.7, 0.55, 0.42, 0.32, 0.25];
+
+function withAlpha(hex, alpha) {
+  return `${hex}${Math.round(alpha * 255).toString(16).padStart(2, "0")}`;
+}
 
 // Icon for a remediation step, chosen from what the step asks for.
 function remediationIcon(step) {
@@ -79,8 +84,15 @@ function secondsBetween(a, b) {
 }
 
 function BackLink() {
+  // Return to the Incidents page with the severity filter it had.
+  let search = "";
+  try {
+    search = sessionStorage.getItem("sg.incidentsSearch") || "";
+  } catch {
+    // Storage unavailable; go back unfiltered.
+  }
   return (
-    <Link to="/incidents" className="inline-flex items-center gap-2 text-sm text-muted transition-colors duration-150 hover:text-accent">
+    <Link to={`/incidents${search}`} className="inline-flex items-center gap-2 text-sm text-muted transition-colors duration-150 hover:text-accent">
       <ArrowLeft size={16} />
       Back to incidents
     </Link>
@@ -107,11 +119,12 @@ function ScoreBreakdown({ incident, newFactors }) {
               <div
                 key={item.factor}
                 title={`${item.factor}: +${item.points}`}
-                className={`flex h-full items-center justify-center text-xs font-semibold text-bg transition-[width] duration-250 ease-out ${newFactors.has(item.factor) ? "enter" : ""}`}
+                className={`flex h-full items-center justify-center text-xs font-semibold text-fg transition-[width] duration-250 ease-out ${newFactors.has(item.factor) ? "enter" : ""}`}
                 style={{
                   width: `${((Number(item.points) || 0) / scale) * 100}%`,
-                  backgroundColor: s.hex,
-                  opacity: SEGMENT_OPACITY[i] ?? 0.2,
+                  // Tint the background only, so the "+N" label keeps full contrast.
+                  backgroundColor: withAlpha(s.hex, SEGMENT_OPACITY[i] ?? 0.2),
+                  textShadow: "0 1px 2px rgb(0 0 0 / 0.6)",
                 }}
               >
                 <span className="mono">+{item.points}</span>
@@ -138,7 +151,7 @@ function ScoreBreakdown({ incident, newFactors }) {
             className={`flex items-center justify-between gap-4 px-6 py-2 ${newFactors.has(item.factor) ? "enter flash" : ""}`}
           >
             <span className="flex min-w-0 items-center gap-2 text-sm text-fg">
-              <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: s.hex, opacity: SEGMENT_OPACITY[i] ?? 0.2 }} />
+              <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: withAlpha(s.hex, SEGMENT_OPACITY[i] ?? 0.2) }} />
               <span className="truncate">{item.factor}</span>
             </span>
             <span className="mono shrink-0 text-sm font-semibold text-fg">+{item.points}</span>
@@ -241,6 +254,12 @@ function IncidentDetail({ id }) {
   const latestIncidentRef = useRef(null);
   latestIncidentRef.current = incident;
 
+  // Analyze needs the backend; clear a stale error once it is reachable again.
+  const offline = useBackendOffline();
+  useEffect(() => {
+    if (!offline) setAnalysisError(null);
+  }, [offline]);
+
   const scoreChanged = useHighlights(
     incident ? [incident] : null,
     (item) => item.incident_id,
@@ -258,7 +277,7 @@ function IncidentDetail({ id }) {
       // Remember which polled copy was on screen when the analysis arrived.
       setLocalAnalysis({ text: result.ai_analysis, polledAt: latestIncidentRef.current });
     } catch (err) {
-      setAnalysisError(err instanceof Error ? err.message : "AI analysis failed");
+      setAnalysisError(errorMessage(err) || "AI analysis failed");
     } finally {
       setAnalyzing(false);
     }
@@ -292,7 +311,7 @@ function IncidentDetail({ id }) {
           <EmptyState
             icon={TriangleAlert}
             title={error?.status === 404 ? "Incident not found" : "Unable to load incident"}
-            hint={error?.status === 404 ? "The database may have been reset." : error?.message}
+            hint={errorMessage(error)}
           />
         </div>
       </PageShell>
@@ -337,7 +356,7 @@ function IncidentDetail({ id }) {
             <span className="mx-2 text-subtle">→</span>
             <span className="text-fg">{incident.provider}</span>
             <span className="mx-2 text-subtle">·</span>
-            first seen {formatDateTime(incident.timestamp)}
+            session started {formatDateTime(incident.timestamp)}
           </p>
           <div className="mt-4 flex flex-wrap items-center gap-4">
             <PrivacyBadge />
@@ -352,7 +371,11 @@ function IncidentDetail({ id }) {
         <ChainTimeline incident={incident} newEvents={newEvents} />
       </section>
 
-      <Card title="Detected findings" subtitle="Redacted evidence and fingerprints only; raw values are never stored" icon={Fingerprint}>
+      <Card
+        title="Detected findings"
+        subtitle="Redacted evidence only; raw values are never stored. Fingerprints are hidden for personal data."
+        icon={Fingerprint}
+      >
         {findings.length === 0 ? (
           <EmptyState icon={Fingerprint} title="No findings in this session yet" hint="Agent actions alone can still raise the score." />
         ) : (
@@ -377,7 +400,14 @@ function IncidentDetail({ id }) {
                     </td>
                     <td className="mono px-6 py-3 text-xs text-muted">{finding.rule}</td>
                     <td className="mono px-6 py-3 text-xs text-medium">{finding.redacted_evidence}</td>
-                    <td className="mono px-6 py-3 text-xs text-subtle">{finding.fingerprint || "—"}</td>
+                    <td className="mono px-6 py-3 text-xs text-subtle">
+                      {/* A short hash of a phone or ID number can be brute-forced; don't display it. */}
+                      {finding.category === "PII" && finding.fingerprint ? (
+                        <span title="Hidden: hashes of short personal data can be reversed by brute force">hidden</span>
+                      ) : (
+                        finding.fingerprint || "—"
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -394,7 +424,8 @@ function IncidentDetail({ id }) {
           <button
             type="button"
             onClick={handleAnalyze}
-            disabled={analyzing}
+            disabled={analyzing || offline}
+            title={offline ? "Backend offline" : undefined}
             className="inline-flex items-center gap-2 rounded-lg border border-accent/40 bg-accent/10 px-4 py-2 text-sm font-semibold text-accent transition-colors duration-150 hover:bg-accent/20 disabled:opacity-50"
           >
             {analyzing ? <LoaderCircle size={16} className="animate-spin" /> : <Sparkles size={16} />}
