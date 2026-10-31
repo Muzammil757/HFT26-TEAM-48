@@ -1,3 +1,70 @@
+# 🚀 CBIT Hacktoberfest '26 — Project Starter Repository
+
+> **Official Public Starter Repository for CBIT Hacktoberfest '26**  
+> *Chaitanya Bharathi Institute of Technology (CBIT), Hyderabad*
+
+---
+
+## 📋 Team Information
+
+| Attribute | Details |
+| :--- | :--- |
+| **Team Name** | **Converge** |
+| **Team Number** | `TEAM-48` (`HFT26-TEAM-48`) |
+| **Registration ID** | `HFEST26-LT7HCVP8` |
+| **Problem Track** | **AI Shadow IT & Agentic Data Exfiltration Scanner** |
+| **Domain** | `General Track` |
+| **Team Leader** | Chetan Varma Bethalam (bethalam2406@gmail.com) |
+| **Institution** | CBIT Hyderabad |
+
+### 👥 Team Members
+
+| # | Name | Email | Institution |
+| :--- | :--- | :--- | :--- |
+| 1 | Nimmala Karthik | nimmalakarthik432@gmail.com | CBIT Hyderabad |
+| 2 | Anurag Kanukuntla | anuragkanukuntla001@gmail.com | CBIT Hyderabad |
+| 3 | Sai Krishna | saikrishna201005@gmail.com | CBIT Hyderabad |
+| 4 | Mohammad Muzzamil | memuzammil88@gmail.com | CBIT Hyderabad |
+
+---
+
+## 🎯 Problem Statement
+
+### **AI Shadow IT & Agentic Data Exfiltration Scanner**
+*Domain:* **General Track**
+
+Employees and developers are rapidly adopting local LLMs, browser AI extensions and autonomous coding agents (Cursor, AutoGPT, custom LangChain scripts). They paste proprietary code, credentials and customer PII into unmonitored AI tools, or connect agents to internal systems without governance. A single prompt guardrail cannot fix this, because AI traffic happens across local network traffic, browser extensions, desktop apps and encrypted API calls.
+
+**Build a non-invasive endpoint and network auditing engine that:**
+
+1. Passively inspects local process network connections, **or** accepts sample PCAP / HTTP request log uploads (mock logs allowed).
+2. Identifies requests to known AI providers or local LLM servers (hostnames, endpoints, ports such as `11434` for Ollama).
+3. Analyses outgoing text payloads in real time with **local entropy checks and regex patterns** to detect leaked secrets (API keys, JWTs) and PII.
+4. Flags risky **autonomous agent behaviour**, such as agents executing shell commands or reading files without verification.
+5. Provides a **local, privacy-focused web dashboard** with AI usage statistics, data-leak alerts and compliance risk scores.
+
+**Constraint:** without invasive SSL decryption or complex enterprise agent deployment.
+
+**Expected outcome:** a working local prototype that shows which AI tools are in use on a machine, detects secrets and PII leaving towards them, flags risky agent actions, and presents it all as explainable alerts and risk scores on a dashboard. Suggested sponsor usage (**Featherless**): an LLM reviews flagged, suspicious snippets in context and suggests remediation for security admins.
+
+## ✅ Requirement → Implementation
+
+| # | Requirement | How ShadowGuard AI implements it |
+|---|---|---|
+| 1 | Passive inspection of local connections, or log uploads | `backend/collector.py`: psutil connection metadata (process, PID, remote host:port) every 3 s, no payloads. JSONL request-log ingest via `POST /api/ingest` (`load_demo.py`, `demo_agent.py`). Opt-in Local LLM Guard relay (`llm_relay.py`) for real local Ollama traffic. |
+| 2 | Identify AI providers and local LLM servers | `backend/providers.py`: host suffix, port (`11434` Ollama, `1234` LM Studio) and API-path registry for OpenAI, Anthropic, Hugging Face, Featherless, Gemini, Ollama, LM Studio and unknown OpenAI-compatible endpoints; approved vs **SHADOW**. |
+| 3 | Real-time entropy + regex detection of secrets and PII | `backend/detectors.py`: regex rules for AWS, OpenAI, Anthropic, GitHub, Hugging Face keys, private keys and JWTs (header-validated); email, +91 phone, PAN, Aadhaar (Verhoeff), cards (Luhn); Shannon entropy with false-positive exclusions. Secrets are redacted in memory; only keyed fingerprints are stored. |
+| 4 | Flag risky autonomous agent behaviour | `shell_exec` / `file_read` events plus OpenAI `tool_calls` and Anthropic `tool_use` parsing; `backend/correlator.py` links a sensitive file read → credential sent within 60 s into one critical **exfiltration chain** incident. |
+| 5 | Local, privacy-focused dashboard with stats, alerts, risk scores | React + Vite dashboard on `127.0.0.1`: Security Overview, AI Inventory, Incidents with an explainable 0–10 score breakdown and chain timeline, Live Test Console, How it works. |
+| — | No SSL decryption | Encrypted cloud traffic is seen as metadata only; payloads are read only where plaintext already exists (localhost HTTP to Ollama, exported request logs). |
+| — | Featherless (sponsor) | `backend/analyzer.py`: *Generate AI Analysis* sends **redacted fields only** to a Featherless model and returns a summary and remediation checklist; offline rule engine as fallback. |
+
+## 🎥 Demo Video
+
+Demo video: VIDEO_LINK_TBD
+
+---
+
 # ShadowGuard AI
 
 **ShadowGuard AI shows which processes on a machine are talking to which AI providers — without decrypting anything — inspects payloads only where plaintext legitimately exists, and catches AI agents that read your secrets and send them out.**
@@ -292,10 +359,67 @@ Events are grouped into sessions (`session_id`, else `source:pid`) and each touc
 - **Detection is rule-based.** It covers the patterns listed above, not every secret format.
 - **Single machine.** No authentication, no multi-user support and no blocking or enforcement, by design for this prototype.
 
-## Team
+## Team & contributions
 
-- **Member 1 — Lead:** backend (ingest, detection, correlation, analyzer, API) and integration.
-- **Member 2:** demo data generator, live demo agent, live connection collector and traffic simulator.
-- **Member 3:** documentation and QA.
-- **Member 4:** frontend dashboard.
-- **Member 5:** Featherless setup and pitch deck.
+- **Mohammad Muzzamil** — lead: backend (ingest, detection, correlation, analyzer, API, Local LLM Guard) and integration.
+- **Sai Krishna** — demo data generator, live demo agent, live connection collector and traffic simulator.
+- **Chetan Varma Bethalam** — frontend dashboard.
+- **Anurag Kanukuntla** — documentation and QA.
+- **Nimmala Karthik** — Featherless setup and pitch deck.
+
+Licensed under the [MIT License](LICENSE).
+
+---
+
+## Hackathon submission workflow
+
+### 🛠️ Contribution & Submission Workflow
+
+All teams must follow the official fork-and-pull-request workflow:
+
+1. **Fork this Repository**:
+   - One team member should click the **Fork** button at the top right to fork this upstream repository to your personal/team GitHub account.
+2. **Add Collaborators**:
+   - In your forked repository, navigate to **Settings > Collaborators** and invite all your registered team members.
+3. **Clone & Develop Locally**:
+   ```bash
+   git clone https://github.com/<your-username>/HFT26-TEAM-48.git
+   cd HFT26-TEAM-48
+   git checkout -b feature/prototype
+   ```
+4. **Commit & Push Regularly**:
+   - Make atomic, descriptive commits throughout the hackathon.
+   ```bash
+   git add .
+   git commit -m "feat: implement core solution architecture"
+   git push origin feature/prototype
+   ```
+5. **Open Pull Request (PR) for Final Submission**:
+   - When ready for evaluation, open a **Pull Request** from your fork's `main` branch back to this upstream repository's `main` branch.
+   - **PR Title Format**: `[SUBMISSION] TEAM-48 - Converge - AI Shadow IT & Agentic Data Exfiltration Scanner`
+   - **PR Description Checklist**:
+     - 📌 Solution Overview & Approach
+     - 🏗️ Architecture & Tech Stack Details
+     - 🚀 Local Setup & Installation Instructions
+     - 🎥 Demo Video Link / Live Deployment URL
+     - 📸 Key Screenshots & Visuals
+
+---
+
+### 📁 Recommended Project Structure
+
+```
+.
+├── src/                  # Source code (Frontend / Backend / ML)
+├── docs/                 # Documentation, architecture diagrams, slides
+├── tests/                # Test suites & verification scripts
+├── README.md             # Your project documentation & presentation
+└── LICENSE               # Open-source license (MIT recommended)
+```
+
+---
+
+### ⚠️ Important Rules & Code of Conduct
+* **Upstream Protection**: Do not push directly to this repository's main branch. All evaluation will be conducted on your submitted Pull Request.
+* **Original Work**: All code submitted must be developed during the hackathon timeline. Open-source libraries and frameworks are welcomed with proper attribution.
+* **Code Freeze**: Final Pull Requests must be submitted before the designated hackathon submission deadline.
