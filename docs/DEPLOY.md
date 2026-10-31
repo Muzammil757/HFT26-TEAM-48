@@ -1,5 +1,7 @@
 # Deploying the public demo (Render, free)
 
+**Live instance: https://shadowguard-ai-wxbl.onrender.com**
+
 One URL serves the dashboard and the API. The host needs **Python only**: the dashboard is the prebuilt frontend in `backend/static`, served by FastAPI.
 
 With `DEPLOY_MODE=1` the backend:
@@ -29,7 +31,7 @@ The repo contains [`render.yaml`](../render.yaml) (free web service, `runtime: p
    - `https://<your-url>/api/health` returns `"mode":"deploy"` and `"collector":"off"`.
    - **Replay agent attack** on Overview or Incidents builds a 10/10 critical chain in about 10 seconds.
    - Opening `https://<your-url>/incidents` directly, or refreshing any page, works.
-10. Put the URL in the README and the PR description in place of `DEMO_URL_TBD`.
+10. Put the URL in the README's *Live Demo* section and in the PR description. The current instance is https://shadowguard-ai-wxbl.onrender.com.
 
 ### Optional: Featherless AI analysis
 

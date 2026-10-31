@@ -59,15 +59,17 @@ Employees and developers are rapidly adopting local LLMs, browser AI extensions 
 | — | No SSL decryption | Encrypted cloud traffic is seen as metadata only; payloads are read only where plaintext already exists (localhost HTTP to Ollama, exported request logs). |
 | — | Featherless (sponsor) | `backend/analyzer.py`: *Generate AI Analysis* sends **redacted fields only** to a Featherless model and returns a summary and remediation checklist; offline rule engine as fallback. |
 
-## 🌐 Live demo
+## 🌐 Live Demo
 
-**Live demo: DEMO_URL_TBD**
+**Live demo: https://shadowguard-ai-wxbl.onrender.com**
 
-One URL serves the dashboard and the API, running in public-demo mode (`DEPLOY_MODE=1`) with synthetic data only. In production, ShadowGuard runs locally on each endpoint. On the free host, the first request after 15 idle minutes takes about a minute while the service wakes up.
+Public demo instance with synthetic data; production runs locally on the endpoint; free tier may take ~50 s to wake.
 
-- **Replay agent attack.** Click the button on *Security Overview* or *Incidents*. A fake `autogpt` agent reads `.env`, runs `cat ~/.aws/credentials` and sends an AWS key to OpenAI, one step every 3 s under a new session. Watch the banner and toasts as the score climbs 3 → 6 → 10, then click **View incident** for the score breakdown and chain timeline. One replay runs at a time (20 s cooldown).
-- **Live Test Console.** Open *Live Test Console*, pick a destination in the composer (e.g. *Ollama · Shadow*) and click a starter, such as **AWS key**. ShadowGuard shows what it intercepted, the masked message and the incident (AWS key → Ollama = 6/10 high). Use fake data only.
-- **Generate AI Analysis** on an incident gives a summary and remediation checklist from redacted fields only (Featherless if configured, otherwise the offline rules).
+- **Replay agent attack.** Click **Replay agent attack** on *Security Overview* or *Incidents*. A fake `autogpt` agent reads `.env`, runs `cat ~/.aws/credentials` and sends an AWS key to OpenAI, one step every 3 s under a new session. The banner and toasts show the score climbing 3 → 6 → 10 (critical); click **View incident** for the score breakdown and the chain timeline. One replay runs at a time (20 s cooldown).
+- **Live Test Console.** Open *Live Test Console*, pick a destination in the composer (e.g. *Ollama · Shadow*) and click a starter such as **AWS key**, or type your own prompt. ShadowGuard replies with what it intercepted, shows your message masked, and links the incident (AWS key → Ollama = 6/10 high). Use fake data only.
+- **Generate AI Analysis** on any incident gives a summary and a remediation checklist from redacted fields only (Featherless if configured, otherwise the offline rules).
+
+**Pitch deck:** [ShadowGuard AI — Pitch Deck (PDF)](<docs/ShadowGuard AI — Pitch Deck.pdf>)
 
 Hosting setup: [docs/DEPLOY.md](docs/DEPLOY.md) (Render free tier, `render.yaml` Blueprint).
 
