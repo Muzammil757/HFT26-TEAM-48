@@ -35,6 +35,17 @@ function Stop-Port($port) {
     }
 }
 
+# Close the backend/frontend windows of earlier runs (and the servers inside them),
+# so relaunching never piles up idle PowerShell windows.
+function Close-DemoWindows {
+    $windows = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -match "WindowTitle='ShadowGuard (backend|frontend)'" }
+    foreach ($w in $windows) {
+        cmd /c "taskkill /T /F /PID $($w.ProcessId) >nul 2>&1"
+    }
+    if ($windows) { Write-Host "    closed $(@($windows).Count) old ShadowGuard window(s)" }
+}
+
 function Wait-Url($url, $seconds) {
     $deadline = (Get-Date).AddSeconds($seconds)
     while ((Get-Date) -lt $deadline) {
@@ -57,6 +68,7 @@ if (Test-Path $VenvPython) {
 }
 
 Step "Freeing ports 8000 and 5173"
+Close-DemoWindows
 Stop-Port 8000
 Stop-Port 5173
 Start-Sleep -Seconds 1
