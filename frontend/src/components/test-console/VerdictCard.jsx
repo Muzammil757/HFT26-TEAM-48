@@ -93,13 +93,13 @@ export default function VerdictCard({ message }) {
           <p className="flex items-start gap-2 text-[13px] text-fg">
             <ShieldCheck size={16} className="mt-0.5 shrink-0 text-approved" />
             <span>
-              <span className="font-semibold">No sensitive data found</span>
+              <span className="font-semibold">No sensitive data found in this message</span>
               <span className="text-muted"> · logged as normal AI usage to {d.provider} ({d.sanctioned ? "approved" : "shadow"})</span>
             </span>
           </p>
         )}
         {message.incident ? (
-          <IncidentLine incident={message.incident} label={leak ? "Incident" : "This chat's incident"} />
+          <IncidentLine incident={message.incident} label={leak ? "Incident" : "Earlier in this chat:"} />
         ) : message.incidentStatus === "missing" ? (
           <p className="mt-2 text-xs text-medium">The incident did not appear within 12 s. Check the Incidents page.</p>
         ) : (

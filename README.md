@@ -205,13 +205,17 @@ On stage:
 
 ### Live Test Console
 
-The **Live Test Console** page (`/test-console`) lets anyone try the detection pipeline with their own prompt:
+The **Live Test Console** page (`/test-console`) is a chat where anyone can type what an employee might paste into an AI tool and watch ShadowGuard intercept it:
 
-1. **Scan.** `POST /api/scan` runs the same detectors as ingest and shows the findings (category, rule, redacted evidence) and the masked text. Nothing is stored or logged.
-2. **Send.** The prompt is wrapped in a valid `ai_request` event for the chosen simulated destination (OpenAI approved; Ollama, Hugging Face, Anthropic shadow) and posted to the local `/api/ingest`, the same pipeline as real traffic.
-3. **Correlate.** The page shows the incident it produced (score, factors, link to the detail page), or explains why the session scored below 3.
+- **Starter cards.** An empty chat offers three starters (AWS key, customer CSV row, harmless coding question). Once the chat has started, the same examples appear as chips above the composer and fill the box.
+- **Masked bubbles.** Your message appears as a chat bubble with every finding replaced by a redaction chip. *Show what I typed* reveals the original; it is kept only in the browser's memory.
+- **ShadowGuard verdicts, not AI answers.** Each reply comes from ShadowGuard, not from a model: what was intercepted (category, rule, redacted evidence), how the request was logged, and the chat's incident with its severity, score and a link to the detail page. A message with no findings says "No sensitive data found in this message"; if the chat already has an incident, it is shown as "Earlier in this chat".
+- **Destination pill.** The pill in the composer picks the simulated destination: OpenAI (approved), or Ollama, Hugging Face, Anthropic (shadow). The gear button sets the process name recorded as the source.
+- **One chat = one session.** All messages in a chat share a session, so the score grows as more is leaked (for example an AWS key, then a customer row, in the same chat). **New chat** starts a new session.
 
-The request is **simulated**: it only reaches ShadowGuard's local ingest, never an AI provider. Use fake data only. The three example chips use documented fake values (`AKIAIOSFODNN7EXAMPLE`, the `4111 1111 1111 1111` test card, a Verhoeff-valid fake Aadhaar). Each send starts a new session unless *Keep same session* is ticked, so you can also demo an incident growing. Expected results: AWS key → Ollama scores 6 (high); the Aadhaar + card + email row → OpenAI scores 3 (medium, 3+ PII items); the harmless question raises nothing.
+Under the hood, each message goes through `POST /api/scan` (detect and mask; nothing stored or logged), is posted to the local `/api/ingest` as a valid `ai_request` event, and is correlated like real traffic.
+
+Everything is **simulated**: messages only reach ShadowGuard's local ingest, never an AI provider. Use fake data only. Detection needs realistic formats: a key or number must look like the real thing (e.g. `AKIA` + 16 characters, a Luhn-valid card, a Verhoeff-valid Aadhaar), so made-up strings like "my password is 1234" are not flagged. The starters use documented fake values (`AKIAIOSFODNN7EXAMPLE`, the `4111 1111 1111 1111` test card, a Verhoeff-valid fake Aadhaar). Expected results in a fresh chat: AWS key → Ollama scores 6 (high); the Aadhaar + card + email row → OpenAI scores 3 (medium, 3+ PII items); the harmless question raises nothing.
 
 Optional live traffic: `python ai_traffic_sim.py` opens real connections to OpenAI and Hugging Face for the collector to detect.
 
