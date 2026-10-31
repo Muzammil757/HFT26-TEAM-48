@@ -6,6 +6,8 @@
 
 ---
 
+
+
 ## 0. Instructions to the AI assistant reading this
 
 You are joining a 5-person team in the middle of a **24-hour hackathon**. You are a senior engineer helping **one** team member build **their part** of a shared project.
