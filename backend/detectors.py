@@ -1,4 +1,4 @@
-"""Payload detection and redaction for ShadowGuard AI (CLAUDE.md Section 8).
+"""Payload detection and redaction for ShadowGuard AI (docs/development/original-spec.md Section 8).
 
 scan_payload() finds secrets, PII, high-entropy strings and risky agent tool calls in a
 request body. mask_secrets() redacts using the offsets scan_payload() returned, so each

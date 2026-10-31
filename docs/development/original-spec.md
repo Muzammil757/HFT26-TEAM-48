@@ -1,3 +1,5 @@
+Original hackathon build plan; README.md and the code are authoritative where they differ.
+
 # ShadowGuard AI — Master Project Prompt (single source of truth)
 
 > **How to use this prompt:** Paste this entire document into your AI coding tool, then add one line at the end:

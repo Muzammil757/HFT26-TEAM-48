@@ -1,4 +1,4 @@
-"""Pydantic schemas and SQLite persistence for ShadowGuard AI (contracts: CLAUDE.md Section 6)."""
+"""Pydantic schemas and SQLite persistence for ShadowGuard AI (contracts: docs/development/original-spec.md Section 6)."""
 
 import json
 import os
@@ -17,7 +17,7 @@ DB_PATH = Path(__file__).parent / ("shadowguard_demo.db" if _DEPLOY else "shadow
 
 
 # ---------------------------------------------------------------------------
-# Pydantic schemas (frozen contracts, CLAUDE.md Section 6)
+# Pydantic schemas (frozen contracts, docs/development/original-spec.md Section 6)
 # ---------------------------------------------------------------------------
 
 class RawEvent(BaseModel):
@@ -492,7 +492,7 @@ def fetch_incident(incident_id: str, db_path: Path = DB_PATH) -> IncidentDetail 
 
 
 def fetch_stats(db_path: Path = DB_PATH) -> dict:
-    """Aggregate dashboard statistics (CLAUDE.md Section 6.4, GET /api/stats)."""
+    """Aggregate dashboard statistics (docs/development/original-spec.md Section 6.4, GET /api/stats)."""
     with get_connection(db_path) as conn:
         totals = conn.execute(
             """

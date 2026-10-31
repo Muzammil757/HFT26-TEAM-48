@@ -1,4 +1,4 @@
-"""Event correlation and explainable risk scoring for ShadowGuard AI (CLAUDE.md Section 9)."""
+"""Event correlation and explainable risk scoring for ShadowGuard AI (docs/development/original-spec.md Section 9)."""
 
 from collections import Counter
 from datetime import datetime, timedelta

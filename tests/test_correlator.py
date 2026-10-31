@@ -1,4 +1,4 @@
-"""Correlator cases (CLAUDE.md Section 9): sessions, scoring factors, chain window, thresholds.
+"""Correlator cases (docs/development/original-spec.md Section 9): sessions, scoring factors, chain window, thresholds.
 
     python tests/test_correlator.py
 

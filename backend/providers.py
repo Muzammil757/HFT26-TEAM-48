@@ -1,4 +1,4 @@
-"""AI provider registry and classification (CLAUDE.md Section 7)."""
+"""AI provider registry and classification (docs/development/original-spec.md Section 7)."""
 
 PROVIDERS = [
     # (provider_name, host_suffixes, ports, path_prefixes)

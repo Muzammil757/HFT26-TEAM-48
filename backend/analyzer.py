@@ -1,4 +1,4 @@
-"""Privacy-preserving AI triage for ShadowGuard AI (CLAUDE.md Section 10.2 step 7).
+"""Privacy-preserving AI triage for ShadowGuard AI (docs/development/original-spec.md Section 10.2 step 7).
 
 The LLM only ever sees redacted incident fields (see build_llm_input). If Featherless is
 not configured or the call fails, a deterministic rule-based analysis is returned instead,

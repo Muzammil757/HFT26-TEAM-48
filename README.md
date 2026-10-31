@@ -69,7 +69,7 @@ Public demo instance with synthetic data; production runs locally on the endpoin
 - **Live Test Console.** Open *Live Test Console*, pick a destination in the composer (e.g. *Ollama · Shadow*) and click a starter such as **AWS key**, or type your own prompt. ShadowGuard replies with what it intercepted, shows your message masked, and links the incident (AWS key → Ollama = 6/10 high). Use fake data only.
 - **Generate AI Analysis** on any incident gives a summary and a remediation checklist from redacted fields only (Featherless if configured, otherwise the offline rules).
 
-**Pitch deck:** [ShadowGuard AI — Pitch Deck (PDF)](<docs/ShadowGuard AI — Pitch Deck.pdf>)
+**Pitch deck:** [ShadowGuard AI — Pitch Deck (PDF)](docs/ShadowGuard_AI_Pitch.pdf)
 
 Hosting setup: [docs/DEPLOY.md](docs/DEPLOY.md) (Render free tier, `render.yaml` Blueprint).
 
@@ -104,6 +104,10 @@ Also: explainable 0–10 risk scores with a factor-by-factor breakdown, validato
 | ![Live Test Console](docs/screenshots/test_console.png) | ![Replay agent attack](docs/screenshots/replay_agent.png) |
 
 ## Architecture
+
+![ShadowGuard AI system architecture](docs/architecture.jpg)
+
+Text version (also in [docs/architecture_diagram.txt](docs/architecture_diagram.txt)):
 
 ```text
  INPUT A: live collector (collector.py)          INPUT B: HTTP request logs (JSONL)
@@ -336,7 +340,7 @@ Optional live traffic: `python ai_traffic_sim.py` opens real connections to Open
 | POST | `/api/demo/replay-agent` | Replays the scenario-05 agent attack (4 events, 3 s apart, new session each time) in the background. `202` with `session_id` and `event_ids`; `429` with `retry_after` within 20 s of the last replay. |
 | POST | `/api/scan` | Body `{"text": "..."}` (max 100 KB). `{"findings":[{"category","rule","redacted_evidence"}],"masked_text"}`. Raw text and values are never returned, logged or stored. Used by the Live Test Console. |
 
-Event types: `ai_request`, `connection`, `file_read`, `shell_exec`. Full contracts: Section 6 of `CLAUDE.md`.
+Event types: `ai_request`, `connection`, `file_read`, `shell_exec`. Full contracts: Section 6 of the [original build plan](docs/development/original-spec.md).
 
 ## Detection rules
 

@@ -1,7 +1,7 @@
 """ShadowGuard AI - Synthetic Data Generator for Demo Scenarios.
 
 Generates seven scenario files in demo_data/ conforming to the RawEvent contract
-in Section 6.1 of AGENTS.md.
+in Section 6.1 of docs/development/original-spec.md.
 Uses standard library only.
 """
 
