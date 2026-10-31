@@ -41,6 +41,7 @@ export default function Toasts() {
     if (fresh.length === 0) return;
 
     const stamped = fresh.map((t) => ({ ...t, id: `${t.incident.incident_id}:${t.incident.risk_score}` }));
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- toasts are raised by changes in the polled incident list
     setToasts((list) => [...stamped, ...list.filter((t) => !stamped.some((s) => s.id === t.id))].slice(0, MAX_TOASTS));
     for (const t of stamped) window.setTimeout(() => dismiss(t.id), TOAST_MS);
   }, [incidents, dismiss]);

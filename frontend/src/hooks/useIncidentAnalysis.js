@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { analyzeIncident } from "../api.js";
 import { parseAnalysis } from "../lib/analysis.js";
 import { errorMessage } from "../lib/format.js";
@@ -16,10 +16,13 @@ export default function useIncidentAnalysis(id, incident, offline) {
   // ai_analysis because the incident changed.
   const [localAnalysis, setLocalAnalysis] = useState(null);
   const latestIncidentRef = useRef(incident);
-  latestIncidentRef.current = incident;
+  useLayoutEffect(() => {
+    latestIncidentRef.current = incident;
+  });
 
   // Analyze needs the backend; clear a stale error once it is reachable again.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset when the backend becomes reachable again
     if (!offline) setError(null);
   }, [offline]);
 

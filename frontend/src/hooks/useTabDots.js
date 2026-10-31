@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 // What each tab shows, reduced to a comparable string.
 function signatures(incident) {
@@ -22,7 +22,9 @@ export default function useTabDots(incident, active) {
   const [dots, setDots] = useState(() => new Set());
   const previousRef = useRef(null);
   const activeRef = useRef(active);
-  activeRef.current = active;
+  useLayoutEffect(() => {
+    activeRef.current = active;
+  });
 
   useEffect(() => {
     if (!incident) return;
@@ -35,6 +37,7 @@ export default function useTabDots(incident, active) {
   }, [incident]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- visiting a tab clears its dot
     setDots((d) => {
       if (!d.has(active)) return d;
       const next = new Set(d);

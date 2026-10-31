@@ -9,6 +9,7 @@
     "scripts": {
         "dev": "vite --host 127.0.0.1",
         "build": "vite build",
+        "lint": "eslint .",
         "preview": "vite preview --host 127.0.0.1"
     },
     "dependencies": {
@@ -21,8 +22,13 @@
         "recharts": "^3.3.0"
     },
     "devDependencies": {
+        "@eslint/js": "^9.39.5",
         "@tailwindcss/vite": "^4.2.2",
         "@vitejs/plugin-react": "^6.1.2",
+        "eslint": "^9.39.5",
+        "eslint-plugin-react": "^7.37.5",
+        "eslint-plugin-react-hooks": "^7.1.1",
+        "globals": "^17.13.0",
         "tailwindcss": "^4.2.2",
         "vite": "^8.3.4"
     }

@@ -9,7 +9,7 @@ import { ClearFiltersButton, SearchInput, Segmented, SortHeader, Toolbar } from 
 import CountUp from "../components/ui/CountUp.jsx";
 import { PageHeader, PageShell } from "../components/ui/Page.jsx";
 import { EmptyState, Skeleton, TableSkeleton } from "../components/ui/States.jsx";
-import usePolling from "../hooks/usePolling.js";
+import usePolling, { useLastRefreshed } from "../hooks/usePolling.js";
 import { formatDateTime, formatNumber, plural, relativeTime } from "../lib/format.js";
 
 function Metric({ label, value, icon: Icon, tone, loading, hint }) {
@@ -80,7 +80,8 @@ export default function Inventory() {
   const shadowProviders = providers.filter((p) => p.shadow > 0).length;
   const totalRequests = providers.reduce((sum, p) => sum + p.approved + p.shadow, 0);
   const loading = stats == null && !error;
-  const now = Date.now();
+  // "Last seen" is relative to the latest poll (the moment this data arrived).
+  const now = useLastRefreshed() ?? undefined;
 
   return (
     <PageShell>

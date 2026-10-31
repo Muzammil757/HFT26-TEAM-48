@@ -49,7 +49,7 @@ export function useReplayAgent() {
     const steps = replay.steps || [];
     const startedAt = Date.now();
     const doneAt = startedAt + Math.max(steps.length - 1, 0) * (replay.interval_seconds || 3) * 1000 + 3000;
-    const base = { phase: "running", steps, startedAt, interval: replay.interval_seconds || 3, incident: null };
+    const base = { phase: "running", steps, startedAt, interval: replay.interval_seconds || 3, incident: null, now: startedAt };
     setState(base);
 
     const poll = async () => {
@@ -63,7 +63,7 @@ export function useReplayAgent() {
       }
       if (!alive.current) return;
       const finished = Date.now() > doneAt;
-      setState({ ...base, phase: finished ? "done" : "running", incident });
+      setState({ ...base, phase: finished ? "done" : "running", incident, now: Date.now() });
       if (incident) refreshAll();
       if (!finished) timer.current = window.setTimeout(poll, POLL_MS);
     };
@@ -122,8 +122,8 @@ export function ReplayBanner({ replay }) {
     );
   }
 
-  const { steps, startedAt, interval, incident } = state;
-  const reached = Math.min(steps.length, Math.floor((Date.now() - startedAt) / (interval * 1000)) + 1);
+  const { steps, startedAt, interval, incident, now } = state;
+  const reached = Math.min(steps.length, Math.floor((now - startedAt) / (interval * 1000)) + 1);
   const running = state.phase === "running";
   const s = incident ? severityOf(incident.severity) : null;
   return (

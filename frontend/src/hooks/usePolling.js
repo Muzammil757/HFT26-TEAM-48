@@ -37,6 +37,7 @@ export function useLastRefreshed() {
   useEffect(() => {
     const handle = (event) => setAt(event.detail?.lastSuccessAt ?? null);
     window.addEventListener("shadowguard:backend-status", handle);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- resync with the shared store after subscribing
     setAt(lastSuccessAt);
     return () => window.removeEventListener("shadowguard:backend-status", handle);
   }, []);
@@ -55,6 +56,7 @@ export function useBackendOffline() {
     const handle = (event) => setOffline(Boolean(event.detail?.offline));
     window.addEventListener("shadowguard:backend-status", handle);
     // Recheck after subscribing in case polling status changed during mount.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- resync with the shared store after subscribing
     setOffline(isOffline());
     return () => window.removeEventListener("shadowguard:backend-status", handle);
   }, []);
@@ -112,6 +114,7 @@ export default function usePolling(fn, interval = 3000, key) {
     }
     store.fn = fn;
     store.listeners.add(setState);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- show the shared store's current value on subscribe
     setState(store.state);
 
     if (store.listeners.size === 1) {
