@@ -3,11 +3,13 @@
 #
 #   ./start_demo.sh            # collector on
 #   ./start_demo.sh --no-collector
+#   ./start_demo.sh --no-relay      # flags can be combined
 #
-# Frees ports 8000/5173, regenerates demo data with recent timestamps, resets the
+# Frees ports 8000/5173/11435, regenerates demo data with recent timestamps, resets the
 # database, starts the backend and the frontend in their own terminal windows
 # (falls back to background processes with logs if no terminal can be opened),
-# loads scenarios 01-04, 06 and 07, and restores demo_data/ so the repo stays clean.
+# loads scenarios 01-04, 06 and 07, starts the Local LLM Guard relay (llm_relay.py),
+# and restores demo_data/ so the repo stays clean.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
@@ -15,8 +17,15 @@ BACKEND="$ROOT/backend"
 FRONTEND="$ROOT/frontend"
 API_URL="http://127.0.0.1:8000"
 APP_URL="http://127.0.0.1:5173"
+RELAY_PORT=11435
 COLLECTOR_ENV=""
-[[ "${1:-}" == "--no-collector" ]] && COLLECTOR_ENV="COLLECTOR_ENABLED=0 "
+RELAY=1
+for arg in "$@"; do
+  case "$arg" in
+    --no-collector) COLLECTOR_ENV="COLLECTOR_ENABLED=0 " ;;
+    --no-relay) RELAY=0 ;;
+  esac
+done
 
 step() { printf '\n==> %s\n' "$1"; }
 
@@ -61,9 +70,10 @@ if [[ -x "$BACKEND/venv/bin/python" ]] &&
   PYTHON="$BACKEND/venv/bin/python"
 fi
 
-step "Freeing ports 8000 and 5173"
+step "Freeing ports 8000, 5173 and $RELAY_PORT"
 stop_port 8000
 stop_port 5173
+stop_port "$RELAY_PORT"
 sleep 1
 
 step "Regenerating demo data and resetting the database (python: $PYTHON)"
@@ -79,6 +89,11 @@ FILES=()
 for n in 01 02 03 04 06 07; do FILES+=("$ROOT"/demo_data/"${n}"_*.jsonl); done
 (cd "$BACKEND" && "$PYTHON" load_demo.py "${FILES[@]}")
 
+if (( RELAY )); then
+  step "Starting the Local LLM Guard relay in its own window"
+  in_new_window "ShadowGuard relay" "cd '$BACKEND' && '$PYTHON' llm_relay.py"
+fi
+
 step "Restoring demo_data/ (regenerated files are not committed)"
 (cd "$ROOT" && git checkout -- demo_data 2>/dev/null) || echo "    (git not available; demo_data left as generated)"
 
@@ -93,6 +108,12 @@ echo "    Dashboard : $APP_URL"
 echo "    API       : $API_URL  (docs: $API_URL/docs)"
 echo "    Analyzer  : $ANALYZER"
 echo "    Collector : $([[ -n "$COLLECTOR_ENV" ]] && echo off || echo on)"
+if (( RELAY )); then
+  echo "    LLM relay : http://127.0.0.1:$RELAY_PORT  (opt in: export OLLAMA_HOST=127.0.0.1:$RELAY_PORT)"
+else
+  echo "    LLM relay : off"
+fi
 echo
 echo "    Live demo : cd backend && $PYTHON demo_agent.py"
-echo "    Stop all  : lsof -ti tcp:8000,5173 -sTCP:LISTEN | xargs kill"
+(( RELAY )) && echo "    Relay demo: cd backend && $PYTHON relay_demo.py"
+echo "    Stop all  : lsof -ti tcp:8000,5173,$RELAY_PORT -sTCP:LISTEN | xargs kill"

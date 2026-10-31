@@ -68,7 +68,7 @@ Also: explainable 0–10 risk scores with a factor-by-factor breakdown, validato
 ShadowGuard never intercepts or decrypts TLS. It has two input tiers:
 
 - **Metadata (always on).** The collector reads `psutil.net_connections()` every 3 seconds and maps each established connection to its process name, PID and remote host/port. Matching hosts and ports (e.g. `api.openai.com:443`, `localhost:11434` for Ollama) against the provider registry tells us *who talks to which AI provider* without reading a single byte of payload.
-- **Payload inspection only where plaintext already exists.** Local LLM servers such as Ollama on `localhost:11434` speak plain HTTP, and organisations already export HTTP request logs from API gateways, SDK logging hooks or egress proxies. ShadowGuard scans those request logs (JSONL). It never decrypts anything to get them.
+- **Payload inspection only where plaintext already exists.** Local LLM servers such as Ollama on `localhost:11434` speak plain HTTP; the opt-in [Local LLM Guard](#local-llm-guard) relay reads those prompts live. Organisations also already export HTTP request logs from API gateways, SDK logging hooks or egress proxies, and ShadowGuard scans those (JSONL). It never decrypts anything to get them.
 
 ## Privacy guarantees (as implemented)
 
@@ -149,14 +149,15 @@ powershell -ExecutionPolicy Bypass -File .\stop_demo.ps1                  # stop
 ```
 
 The launcher:
-1. Frees ports 8000 and 5173.
+1. Frees ports 8000, 5173 and 11435.
 2. Regenerates the demo data with recent timestamps and resets the database.
 3. Starts the backend in its own window and waits for `/api/health`.
 4. Loads scenarios 01–04, 06 and 07, then restores `demo_data/` so the repo stays clean.
-5. Starts the frontend in its own window.
-6. Prints the URLs and the active analyzer engine.
+5. Starts the [Local LLM Guard](#local-llm-guard) relay on `127.0.0.1:11435` in its own window (skip with `-NoRelay` / `--no-relay`).
+6. Starts the frontend in its own window.
+7. Prints the URLs, the active analyzer engine and the relay address.
 
-Both windows keep running until you close them or run `stop_demo.ps1`.
+The windows keep running until you close them or run `stop_demo.ps1`.
 
 - Dashboard: **http://127.0.0.1:5173**
 - API: **http://127.0.0.1:8000** (interactive docs at `/docs`)
@@ -202,6 +203,7 @@ On stage:
 5. **Generate AI Analysis** — Featherless returns a summary and a remediation checklist, from redacted data only.
 6. The false-positive bait file (UUIDs, git SHAs, MD5s, a base64 image, numbers that fail Luhn/Verhoeff) produced zero findings.
 7. **Live Test Console** — let a judge type a prompt (or click an example) and watch it get scanned, masked and scored live.
+8. **Local LLM Guard** — run `python relay_demo.py`: two real prompts go through the relay to Ollama; the one with a fake AWS key and Aadhaar becomes a `python.exe` → Ollama (shadow) incident within seconds, even if Ollama isn't installed.
 
 ### Live Test Console
 
@@ -216,6 +218,27 @@ The **Live Test Console** page (`/test-console`) is a chat where anyone can type
 Under the hood, each message goes through `POST /api/scan` (detect and mask; nothing stored or logged), is posted to the local `/api/ingest` as a valid `ai_request` event, and is correlated like real traffic.
 
 Everything is **simulated**: messages only reach ShadowGuard's local ingest, never an AI provider. Use fake data only. Detection needs realistic formats: a key or number must look like the real thing (e.g. `AKIA` + 16 characters, a Luhn-valid card, a Verhoeff-valid Aadhaar), so made-up strings like "my password is 1234" are not flagged. The starters use documented fake values (`AKIAIOSFODNN7EXAMPLE`, the `4111 1111 1111 1111` test card, a Verhoeff-valid fake Aadhaar). Expected results in a fresh chat: AWS key → Ollama scores 6 (high); the Aadhaar + card + email row → OpenAI scores 3 (medium, 3+ PII items); the harmless question raises nothing.
+
+### Local LLM Guard
+
+`backend/llm_relay.py` inspects **real** prompts sent to a local Ollama server, with no simulation and no TLS involved.
+
+- **Why this is legitimate plaintext.** Ollama listens on `localhost:11434` and speaks plain HTTP. The prompt never leaves the machine encrypted, so there is nothing to decrypt: no certificates, no TLS interception.
+- **Opt-in.** The relay listens on `127.0.0.1:11435` and forwards to Ollama (`OLLAMA_UPSTREAM`, default `http://127.0.0.1:11434`). Only clients that set `OLLAMA_HOST=127.0.0.1:11435` go through it; everything else talks to Ollama directly as before.
+- **Observe only.** Requests and responses are passed through unchanged, streaming included (Ollama's NDJSON arrives token by token). Nothing is blocked or modified.
+- **What it does.** For `POST /api/generate`, `/api/chat` and `/v1/chat/completions` it identifies the calling process from the client's source port (psutil), sends the body to `POST /api/ingest` as an `ai_request` event (`destination` `localhost`, port 11434, `session_id` `relay:<pid>`), and only then forwards the request. The backend scans, redacts and correlates it like any other event, so incidents show the real process (e.g. `python.exe`) talking to Ollama (shadow). Other paths, such as `GET /api/tags`, pass straight through.
+- **Never in the way.** If ShadowGuard's ingest is down, the relay logs a warning and still forwards the request. If Ollama is down, the client gets `502 {"error": "Ollama not reachable; request was still scanned by ShadowGuard"}`.
+- **No bodies in logs.** The relay logs method, path, process, size and status only. Payloads are redacted by the backend before anything is stored.
+
+```powershell
+cd backend
+python llm_relay.py                      # started automatically by start_demo.ps1
+$env:OLLAMA_HOST = "127.0.0.1:11435"     # opt a client in (macOS/Linux: export OLLAMA_HOST=127.0.0.1:11435)
+ollama run llama3.2:1b "hello"           # or any Ollama client / SDK
+python relay_demo.py                     # sends one clean and one leaking prompt (OLLAMA_MODEL, default llama3.2:1b)
+```
+
+With the demo prompts, the clean one raises nothing, and the one with `AKIAIOSFODNN7EXAMPLE` and a fake Aadhaar scores 8 (critical): unsanctioned provider +2, credential +4, PII +2.
 
 Optional live traffic: `python ai_traffic_sim.py` opens real connections to OpenAI and Hugging Face for the collector to detect.
 

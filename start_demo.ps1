@@ -2,14 +2,17 @@
 #
 #   powershell -ExecutionPolicy Bypass -File .\start_demo.ps1
 #   powershell -ExecutionPolicy Bypass -File .\start_demo.ps1 -NoCollector
+#   powershell -ExecutionPolicy Bypass -File .\start_demo.ps1 -NoRelay
 #
-# Frees ports 8000/5173, regenerates demo data with recent timestamps, resets the
+# Frees ports 8000/5173/11435, regenerates demo data with recent timestamps, resets the
 # database, starts the backend and the frontend in their own windows (they keep
-# running after this script ends), loads scenarios 01-04, 06 and 07, and restores
-# demo_data/ so the repo stays clean. Scenario 05 is played live by demo_agent.py.
+# running after this script ends), loads scenarios 01-04, 06 and 07, starts the
+# Local LLM Guard relay (llm_relay.py) in a third window, and restores demo_data/
+# so the repo stays clean. Scenario 05 is played live by demo_agent.py.
 
 param(
-    [switch]$NoCollector  # start the backend with COLLECTOR_ENABLED=0
+    [switch]$NoCollector,  # start the backend with COLLECTOR_ENABLED=0
+    [switch]$NoRelay       # don't start the Local LLM Guard relay on 11435
 )
 
 # "Continue", not "Stop": Windows PowerShell 5.1 turns any stderr output of a native
@@ -21,6 +24,7 @@ $Backend = Join-Path $Root "backend"
 $Frontend = Join-Path $Root "frontend"
 $ApiUrl = "http://127.0.0.1:8000"
 $AppUrl = "http://127.0.0.1:5173"
+$RelayPort = 11435
 
 function Step($msg) { Write-Host "`n==> $msg" -ForegroundColor Cyan }
 
@@ -39,7 +43,7 @@ function Stop-Port($port) {
 # so relaunching never piles up idle PowerShell windows.
 function Close-DemoWindows {
     $windows = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -match "WindowTitle='ShadowGuard (backend|frontend)'" }
+        Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -match "WindowTitle='ShadowGuard (backend|frontend|relay)'" }
     foreach ($w in $windows) {
         cmd /c "taskkill /T /F /PID $($w.ProcessId) >nul 2>&1"
     }
@@ -67,10 +71,11 @@ if (Test-Path $VenvPython) {
     if ($LASTEXITCODE -eq 0) { $Python = $VenvPython }
 }
 
-Step "Freeing ports 8000 and 5173"
+Step "Freeing ports 8000, 5173 and $RelayPort"
 Close-DemoWindows
 Stop-Port 8000
 Stop-Port 5173
+Stop-Port $RelayPort
 Start-Sleep -Seconds 1
 
 Step "Regenerating demo data and resetting the database (python: $Python)"
@@ -97,6 +102,18 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "load_demo.py failed" }
 } finally { Pop-Location }
 
+if (-not $NoRelay) {
+    Step "Starting the Local LLM Guard relay in its own window"
+    $relayCmd = "`$Host.UI.RawUI.WindowTitle='ShadowGuard relay'; Set-Location '$Backend'; & '$Python' llm_relay.py"
+    Start-Process powershell -ArgumentList "-NoExit", "-Command", $relayCmd | Out-Null
+    $deadline = (Get-Date).AddSeconds(20)
+    while (-not (Get-NetTCPConnection -LocalPort $RelayPort -State Listen -ErrorAction SilentlyContinue) -and (Get-Date) -lt $deadline) {
+        Start-Sleep -Milliseconds 500
+    }
+    if (Get-NetTCPConnection -LocalPort $RelayPort -State Listen -ErrorAction SilentlyContinue) { Write-Host "    relay is up" }
+    else { Write-Host "    relay did not start (see its window)" -ForegroundColor Yellow }
+}
+
 Step "Restoring demo_data/ (regenerated files are not committed)"
 Push-Location $Root
 cmd /c "git checkout -- demo_data >nul 2>&1"
@@ -118,5 +135,8 @@ Write-Host "    Dashboard : $AppUrl" -ForegroundColor Green
 Write-Host "    API       : $ApiUrl  (docs: $ApiUrl/docs)" -ForegroundColor Green
 Write-Host "    Analyzer  : $($health.analyzer)"
 Write-Host "    Collector : $(if ($NoCollector) { 'off' } else { 'on' })"
+if ($NoRelay) { Write-Host "    LLM relay : off" }
+else { Write-Host "    LLM relay : http://127.0.0.1:$RelayPort  (opt in: `$env:OLLAMA_HOST='127.0.0.1:$RelayPort')" -ForegroundColor Green }
 Write-Host "`n    Live demo : cd backend; $Python demo_agent.py"
+if (-not $NoRelay) { Write-Host "    Relay demo: cd backend; $Python relay_demo.py" }
 Write-Host "    Stop all  : powershell -ExecutionPolicy Bypass -File .\stop_demo.ps1"
