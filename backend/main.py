@@ -44,10 +44,16 @@ log_collector = logging.getLogger("shadowguard.collector")
 log_analyze = logging.getLogger("shadowguard.analyze")
 log_deploy = logging.getLogger("shadowguard.deploy")
 
-from analyzer import analyze_incident, build_llm_input, offline_analysis  # noqa: E402
 import replay  # noqa: E402
+from analyzer import analyze_incident, build_llm_input, offline_analysis  # noqa: E402
 from correlator import correlate_events  # noqa: E402
-from deploy import DEPLOY_MODE, install_public_safety, load_demo_scenarios, mount_frontend, reset_database  # noqa: E402
+from deploy import (  # noqa: E402
+    DEPLOY_MODE,
+    install_public_safety,
+    load_demo_scenarios,
+    mount_frontend,
+    reset_database,
+)
 from detectors import MAX_SCAN_CHARS, mask_secrets, scan_payload  # noqa: E402
 from models import (  # noqa: E402
     DB_PATH,

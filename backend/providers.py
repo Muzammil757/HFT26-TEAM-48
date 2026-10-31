@@ -2,7 +2,7 @@
 
 PROVIDERS = [
     # (provider_name, host_suffixes, ports, path_prefixes)
-    ("OpenAI",        ["api.openai.com"],                     [443],   ["/v1/chat/completions", "/v1/responses", "/v1/completions", "/v1/embeddings"]),
+    ("OpenAI",        ["api.openai.com"],                     [443],   ["/v1/chat/completions", "/v1/responses", "/v1/completions", "/v1/embeddings"]),  # noqa: E501 (data literal)
     ("Anthropic",     ["api.anthropic.com"],                  [443],   ["/v1/messages"]),
     ("Hugging Face",  ["api-inference.huggingface.co", "huggingface.co"], [443], ["/models/"]),
     ("Featherless",   ["api.featherless.ai"],                 [443],   ["/v1/"]),

@@ -137,10 +137,8 @@ def _correlate_session(events: list[RawEvent], findings_by_event: dict[str, list
         leak_clause = f"sent {_join(sent)} to {dest}"
         if chain:
             leak_clause += f" within {int((chain[1] - chain[0]).total_seconds())}s"
-        if actions:
-            agent_context = f"{source} {', '.join(actions)}, then {leak_clause}."
-        else:
-            agent_context = f"{source} {leak_clause}."
+        agent_context = (f"{source} {', '.join(actions)}, then {leak_clause}." if actions
+                         else f"{source} {leak_clause}.")
     else:
         agent_context = f"{source} {_join(actions)} while using {dest}."
 

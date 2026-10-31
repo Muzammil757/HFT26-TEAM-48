@@ -20,7 +20,6 @@ for _stream in (sys.stdout, sys.stderr):
         pass
 
 import requests  # noqa: E402
-
 from models import validate_event  # noqa: E402
 
 INGEST_URL = "http://127.0.0.1:8000/api/ingest"

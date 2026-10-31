@@ -1,0 +1,29 @@
+# Tooling config only (the backend runs from backend/ with backend/requirements.txt).
+
+[tool.ruff]
+line-length = 100          # target for new code and `ruff format`
+target-version = "py311"
+extend-exclude = ["backend/static", "frontend"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes
+    "B",        # bugbear
+    "UP",       # pyupgrade
+    "I",        # import sorting
+    "SIM",      # simplify
+    "C4",       # comprehensions
+]
+ignore = [
+    "SIM105",   # explicit try/except/pass is kept where it reads clearer than contextlib.suppress
+]
+
+[tool.ruff.lint.pycodestyle]
+# Existing long string literals and data tables are not rewrapped; anything past
+# 140 characters is reported. New code should stay within line-length (100).
+max-line-length = 140
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's Body(...) in a parameter default is the framework's idiom, not a shared mutable.
+extend-immutable-calls = ["fastapi.Body", "fastapi.Query", "fastapi.Depends"]

@@ -25,7 +25,6 @@ for _stream in (sys.stdout, sys.stderr):
         pass
 
 import requests  # noqa: E402
-
 from load_demo import load_paths  # noqa: E402
 from models import DB_PATH  # noqa: E402
 

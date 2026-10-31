@@ -10,8 +10,9 @@ import logging
 import socket
 import threading
 import time
-from datetime import datetime, timezone
-from typing import Any, Callable
+from collections.abc import Callable
+from datetime import UTC, datetime
+from typing import Any
 
 try:
     import psutil
@@ -186,7 +187,7 @@ def _collector_loop(
                     source_name = "unknown"
 
             event_id = f"live_{pid}_{r_ip}_{r_port}"
-            now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            now_utc = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
             event = {
                 "event_id": event_id,

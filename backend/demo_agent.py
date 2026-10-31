@@ -9,7 +9,7 @@ Uses only requests + Python standard library.
 import json
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import requests
@@ -39,7 +39,7 @@ def load_events(filepath: Path) -> list[dict]:
             sys.exit(f"[ERROR] Could not find scenario file: {filepath}")
 
     events = []
-    with open(filepath, "r", encoding="utf-8") as f:
+    with open(filepath, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if line:
@@ -76,7 +76,7 @@ def replay_chain(scenario_path: Path = DEFAULT_DATA_PATH, interval: float = 3.0)
 
     # Check server availability first
     if not check_backend_running():
-        print(f"\n[ERROR] Server is not running at http://127.0.0.1:8000.")
+        print("\n[ERROR] Server is not running at http://127.0.0.1:8000.")
         print("Please start the backend server before running demo_agent:")
         print("    cd backend")
         print("    python main.py")
@@ -90,7 +90,7 @@ def replay_chain(scenario_path: Path = DEFAULT_DATA_PATH, interval: float = 3.0)
 
     for i, event in enumerate(events, start=1):
         # Rewrite timestamp to current UTC time (ISO 8601 with Z)
-        now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        now_utc = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         event["timestamp"] = now_utc
 
         # Print step description

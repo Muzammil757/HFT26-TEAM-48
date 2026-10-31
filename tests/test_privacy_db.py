@@ -12,9 +12,8 @@ import sqlite3
 import sys
 from contextlib import closing
 
-from _common import BACKEND, DEMO_DATA, Checks, demo_events, run_pipeline
-
 import psutil
+from _common import BACKEND, DEMO_DATA, Checks, demo_events, run_pipeline
 
 DB = BACKEND / "shadowguard.db"
 c = Checks("Privacy scan (backend/shadowguard.db)")

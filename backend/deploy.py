@@ -16,9 +16,10 @@ import os
 import threading
 import time
 from collections import defaultdict, deque
-from datetime import datetime, timedelta, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
@@ -41,7 +42,7 @@ def load_demo_scenarios(ingest: Callable[[list[Any]], dict]) -> None:
     """Fill the empty demo database with scenarios 01-04, 06 and 07 (fake data only)."""
     import generate_data as gen
 
-    base = datetime.now(timezone.utc) - timedelta(minutes=10)
+    base = datetime.now(UTC) - timedelta(minutes=10)
     scenarios = [("01", gen.generate_file_01), ("02", gen.generate_file_02), ("03", gen.generate_file_03),
                  ("04", gen.generate_file_04), ("06", gen.generate_file_06), ("07", gen.generate_file_07)]
     for name, build in scenarios:

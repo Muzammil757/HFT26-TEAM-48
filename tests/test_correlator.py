@@ -6,7 +6,6 @@ Events and findings are built by hand (provider / sanctioned set directly). All 
 """
 
 from _common import Checks
-
 from correlator import correlate_events
 from models import RawEvent
 

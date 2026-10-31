@@ -11,9 +11,10 @@ import logging
 import threading
 import time
 import uuid
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 SCENARIO = Path(__file__).resolve().parent.parent / "demo_data" / "05_agent_chain.jsonl"
 INTERVAL_SECONDS = 3
@@ -56,7 +57,7 @@ def start_replay(ingest: Callable[[list[Any]], dict]) -> dict:
         for i, event in enumerate(events):
             if i:
                 time.sleep(INTERVAL_SECONDS)
-            event = {**event, "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+            event = {**event, "timestamp": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")}
             try:
                 ingest([event])
             except Exception as exc:  # keep going; the next step may still succeed

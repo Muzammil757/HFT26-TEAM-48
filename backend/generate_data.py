@@ -8,7 +8,7 @@ Uses standard library only.
 import base64
 import json
 import random
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -401,7 +401,7 @@ def generate_file_03(base_time: datetime) -> list[dict]:
         (
             "cursor.exe",
             3012,
-            "Connecting to Bastion host using this key:\n-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA0Yx31exampleprivatekeyblockcontentnotrealAAAA\n-----END RSA PRIVATE KEY-----",
+            "Connecting to Bastion host using this key:\n-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA0Yx31exampleprivatekeyblockcontentnotrealAAAA\n-----END RSA PRIVATE KEY-----",  # noqa: E501 (data literal)
             "api.openai.com",
             443,
             "/v1/chat/completions",
@@ -860,7 +860,7 @@ def main() -> None:
     demo_dir = (script_dir.parent / "demo_data").resolve()
 
     # Base time = now minus 10 minutes in UTC
-    base_time = datetime.now(timezone.utc) - timedelta(minutes=10)
+    base_time = datetime.now(UTC) - timedelta(minutes=10)
 
     print(f"Generating ShadowGuard AI demo data in {demo_dir}...")
     print(f"Base time (UTC): {base_time.strftime('%Y-%m-%dT%H:%M:%SZ')}\n")

@@ -9,7 +9,6 @@ import base64
 import json
 
 from _common import Checks, demo_events
-
 from detectors import luhn_valid, mask_secrets, scan_payload, verhoeff_valid
 
 AWS_KEY = "AKIAIOSFODNN7EXAMPLE"

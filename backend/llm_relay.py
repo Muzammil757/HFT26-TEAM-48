@@ -27,7 +27,7 @@ import logging
 import os
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
@@ -38,8 +38,8 @@ for _stream in (sys.stdout, sys.stderr):
         pass
 
 import psutil  # noqa: E402
-from logging_setup import setup_logging  # noqa: E402
 import requests  # noqa: E402
+from logging_setup import setup_logging  # noqa: E402
 
 HOST = "127.0.0.1"  # local only, never 0.0.0.0
 PORT = int(os.environ.get("RELAY_PORT", "11435"))
@@ -74,7 +74,7 @@ def identify_client(client_port: int) -> tuple[str, int | None]:
 def report(path: str, body: bytes, client_port: int) -> None:
     """Send the request to ShadowGuard as an ai_request. Never raises, never logs the body."""
     source, pid = identify_client(client_port)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     event = {
         "event_id": f"relay_{int(time.time() * 1000)}_{next(_counter)}",
         "timestamp": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
