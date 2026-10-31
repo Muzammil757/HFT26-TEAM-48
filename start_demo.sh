@@ -7,7 +7,7 @@
 # Frees ports 8000/5173, regenerates demo data with recent timestamps, resets the
 # database, starts the backend and the frontend in their own terminal windows
 # (falls back to background processes with logs if no terminal can be opened),
-# loads scenarios 01-04 and 06, and restores demo_data/ so the repo stays clean.
+# loads scenarios 01-04, 06 and 07, and restores demo_data/ so the repo stays clean.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
@@ -74,9 +74,9 @@ in_new_window "ShadowGuard backend" "cd '$BACKEND' && ${COLLECTOR_ENV}'$PYTHON' 
 wait_url "$API_URL/api/health" 60 || { echo "Backend did not answer on $API_URL within 60 s"; exit 1; }
 echo "    backend is up"
 
-step "Loading demo scenarios 01 02 03 04 06"
+step "Loading demo scenarios 01 02 03 04 06 07"
 FILES=()
-for n in 01 02 03 04 06; do FILES+=("$ROOT"/demo_data/"${n}"_*.jsonl); done
+for n in 01 02 03 04 06 07; do FILES+=("$ROOT"/demo_data/"${n}"_*.jsonl); done
 (cd "$BACKEND" && "$PYTHON" load_demo.py "${FILES[@]}")
 
 step "Restoring demo_data/ (regenerated files are not committed)"

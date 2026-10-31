@@ -2,8 +2,8 @@
 
 Usage:
     python demo_reset.py                         # delete shadowguard.db only
-    python demo_reset.py --load 01 02 03 04 06   # delete, wait for the server, load files
-    python demo_reset.py --fresh --load 01 02 03 04 06   # regenerate data first (recent timestamps)
+    python demo_reset.py --load 01 02 03 04 06 07   # delete, wait for the server, load files
+    python demo_reset.py --fresh --load 01 02 03 04 06 07   # regenerate data first (recent timestamps)
 
 Numbers map to ../demo_data/0N_*.jsonl. File 05 is normally NOT preloaded:
 demo_agent.py plays it live on stage.
@@ -70,7 +70,7 @@ def delete_db() -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--load", nargs="+", metavar="NN", help="scenario numbers to load, e.g. 01 02 03 04 06")
+    parser.add_argument("--load", nargs="+", metavar="NN", help="scenario numbers to load, e.g. 01 02 03 04 06 07")
     parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR, help="folder with 0N_*.jsonl files")
     parser.add_argument("--wait", type=int, default=120, help="seconds to wait for the server (default 120)")
     parser.add_argument("--fresh", action="store_true",

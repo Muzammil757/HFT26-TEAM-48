@@ -152,7 +152,7 @@ The launcher:
 1. Frees ports 8000 and 5173.
 2. Regenerates the demo data with recent timestamps and resets the database.
 3. Starts the backend in its own window and waits for `/api/health`.
-4. Loads scenarios 01–04 and 06, then restores `demo_data/` so the repo stays clean.
+4. Loads scenarios 01–04, 06 and 07, then restores `demo_data/` so the repo stays clean.
 5. Starts the frontend in its own window.
 6. Prints the URLs and the active analyzer engine.
 
@@ -172,10 +172,26 @@ Manual alternative to the launcher, before going on stage (and before every rehe
 ```bash
 cd backend
 # stop the server first, then:
-python demo_reset.py --fresh --load 01 02 03 04 06
+python demo_reset.py --fresh --load 01 02 03 04 06 07
 ```
 
-This regenerates the demo data with recent timestamps, deletes the database, waits for you to start `python main.py` in another terminal, and then loads scenarios 01–04 and 06. Scenario 05 is not preloaded: it is played live. `--fresh` rewrites `demo_data/*.jsonl`; don't commit those changes.
+This regenerates the demo data with recent timestamps, deletes the database, waits for you to start `python main.py` in another terminal, and then loads scenarios 01–04, 06 and 07. Scenario 05 is not preloaded: it is played live. `--fresh` rewrites `demo_data/*.jsonl`; don't commit those changes.
+
+### Demo scenarios
+
+`backend/generate_data.py` writes these files to `demo_data/` (fake data only):
+
+| File | What it contains | Expected result |
+|---|---|---|
+| `01_benign_openai.jsonl` | Normal coding questions to OpenAI | 0 findings, 0 incidents |
+| `02_shadow_traffic.jsonl` | `python.exe` → Ollama, `node.exe` → Hugging Face, connections to Anthropic | 0 incidents; SHADOW rows in the AI Inventory |
+| `03_key_leak.jsonl` | AWS keys, OpenAI, Anthropic and Hugging Face keys, GitHub token, JWT, RSA private key | Credential incidents, score ≥ 4 |
+| `04_pii_leak.jsonl` | Emails, +91 phones, PAN, Verhoeff-valid Aadhaar, Luhn-valid cards | PII incidents, score ≥ 3 |
+| `05_agent_chain.jsonl` | `autogpt`: `.env` read → `cat ~/.aws/credentials` → AWS key to OpenAI (played live by `demo_agent.py`) | 1 chain incident, 10/10 critical |
+| `06_false_positive_bait.jsonl` | UUIDs, git SHAs, MD5s, base64 image, numbers that fail Luhn/Verhoeff | 0 findings, 0 incidents |
+| `07_agent_variety.jsonl` | `claude-agent`: `~/.ssh/id_rsa` read → Anthropic-style `read_file` tool call + fake OpenSSH private key to Ollama | Chain incident, 10/10 critical |
+| | `langchain-agent` (`agent-lc-02`): `curl … \| sh` shell command, then a clean prompt to OpenAI | 3/10 medium (shell only) |
+| | `langchain-agent` (`agent-lc-03`): reads `config.yaml`, then a clean prompt to OpenAI | No incident |
 
 On stage:
 
