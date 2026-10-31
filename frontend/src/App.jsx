@@ -1,5 +1,5 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
-import Layout from "./components/Layout.jsx";
+import AppLayout from "./components/layout/AppLayout.jsx";
 import Overview from "./pages/Overview.jsx";
 import Inventory from "./pages/Inventory.jsx";
 import Incidents from "./pages/Incidents.jsx";
@@ -9,7 +9,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route element={<Layout />}>
+        <Route element={<AppLayout />}>
           <Route path="/" element={<Overview />} />
           <Route path="/inventory" element={<Inventory />} />
           <Route path="/incidents" element={<Incidents />} />

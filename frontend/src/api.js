@@ -33,6 +33,14 @@ async function request(path, options = {}) {
   return response.json();
 }
 
+export async function getHealth() {
+  if (USE_MOCKS) {
+    return { status: "ok", db: true, analyzer: "offline-rules", collector: "off" };
+  }
+
+  return request("/api/health");
+}
+
 export async function getStats() {
   if (USE_MOCKS) {
     return mockStats;

@@ -57,9 +57,13 @@ from providers import classify  # noqa: E402
 
 MOCK_DATA = Path(__file__).parent.parent / "frontend" / "src" / "mocks" / "mock_incidents.json"
 
+# Live collector thread, if running; reported by /api/health.
+_collector_thread: threading.Thread | None = None
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global _collector_thread
     init_db()
     if os.environ.get("SEED_MOCK") == "1":
         seed_from_file(MOCK_DATA)  # no-op once the DB has data
@@ -75,6 +79,7 @@ async def lifespan(app: FastAPI):
                 interval=3.0,
                 stop_event=collector_stop,
             )
+            _collector_thread = collector_thread
             print("[collector] Live connection collector started (COLLECTOR_ENABLED=0 to disable)")
         except Exception as exc:  # never block startup on the collector
             print(f"[collector] Not started: {type(exc).__name__}: {exc}")
@@ -158,6 +163,7 @@ def health() -> dict:
         "status": "ok" if db_ok else "degraded",
         "db": db_ok,
         "analyzer": f"featherless:{model}" if configured else "offline-rules",
+        "collector": "on" if _collector_thread is not None and _collector_thread.is_alive() else "off",
     }
 
 

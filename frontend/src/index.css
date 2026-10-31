@@ -1,164 +1,216 @@
 @import "tailwindcss";
 
 /*
- * ShadowGuard design system. Every colour has a meaning:
- *   accent (cyan)            interactive / live / neutral data
- *   critical / high / medium severity
- *   shadow (red) / approved  provider status
- * Surfaces layer bg -> card -> raised. Spacing follows an 8px grid.
- * Type scale: 12 / 14 / 16 / 20 / 28 / 40.
+ * ShadowGuard design system: one light theme, one token set.
+ *   accent (enterprise blue)       interactive, live, neutral data
+ *   critical / high / medium / low severity
+ *   approved (green) / shadow (red) provider status, always with a text label
+ * Surfaces: bg (canvas) -> card (white) -> sunken (table heads, code wells).
+ * Spacing on a 4/8px grid. Type scale: 12 / 13 / 14 / 16 / 20 / 28.
  */
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, "Segoe UI", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
 
-  --color-bg: #07090d;
-  --color-card: #0d1117;
-  --color-raised: #141a22;
-  --color-line: #1e2630;
-  --color-line-strong: #2b3542;
-  --color-fg: #e8ecf2;
-  --color-muted: #9aa5b4;
-  --color-subtle: #657083;
+  --color-bg: #f5f7fa;
+  --color-card: #ffffff;
+  --color-sunken: #f8fafc;
+  --color-hover: #f3f6fa;
+  --color-line: #e5eaf1;
+  --color-line-strong: #d3dbe6;
+  --color-fg: #17243a;
+  --color-muted: #667085;
+  --color-subtle: #8a94a6;
 
-  --color-accent: #22d3ee;
-  --color-critical: #f43f5e;
-  --color-high: #fb923c;
-  --color-medium: #fbbf24;
-  --color-shadow: #f87171;
-  --color-approved: #34d399;
+  --color-accent: #315e9b;
+  --color-accent-strong: #264b7e;
+  --color-accent-soft: #eef3fa;
 
-  --text-title: 1.75rem;
-  --text-title--line-height: 2.25rem;
-  --text-display: 2.5rem;
-  --text-display--line-height: 1;
+  --color-critical: #b42318;
+  --color-critical-soft: #fef3f2;
+  --color-critical-line: #fbd0cc;
+  --color-high: #b54708;
+  --color-high-soft: #fff6ed;
+  --color-high-line: #f9d8bb;
+  --color-medium: #8a6100;
+  --color-medium-soft: #fefbe8;
+  --color-medium-line: #f1e2a6;
+  --color-low: #067647;
+  --color-low-soft: #ecfdf3;
+  --color-low-line: #b5ead0;
 
-  --radius-card: 12px;
+  --color-approved: #067647;
+  --color-approved-soft: #ecfdf3;
+  --color-approved-line: #b5ead0;
+  --color-shadow: #b42318;
+  --color-shadow-soft: #fef3f2;
+  --color-shadow-line: #fbd0cc;
 
-  --shadow-card: 0 1px 0 0 rgb(255 255 255 / 0.03) inset, 0 8px 24px -16px rgb(0 0 0 / 0.8);
-  --shadow-raised: 0 1px 0 0 rgb(255 255 255 / 0.04) inset, 0 16px 40px -20px rgb(0 0 0 / 0.9);
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1rem;
+  --text-title: 1.375rem;
+  --text-title--line-height: 1.875rem;
+  --text-kpi: 1.75rem;
+  --text-kpi--line-height: 2.125rem;
+
+  --radius-card: 10px;
+
+  --shadow-card: 0 1px 2px 0 rgb(23 36 58 / 0.04);
+  --shadow-pop: 0 8px 24px -6px rgb(23 36 58 / 0.14), 0 2px 6px -2px rgb(23 36 58 / 0.06);
 }
 
-:root {
-  color-scheme: dark;
-  font-family: var(--font-sans);
-  font-feature-settings: "cv11", "ss01";
-  background: var(--color-bg);
-  color: var(--color-fg);
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+@layer base {
+  :root {
+    color-scheme: light;
+    font-family: var(--font-sans);
+    font-feature-settings: "cv11", "ss01";
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  * {
+    box-sizing: border-box;
+    scrollbar-color: var(--color-line-strong) transparent;
+    scrollbar-width: thin;
+  }
+
+  html,
+  body {
+    min-width: 320px;
+    min-height: 100%;
+    margin: 0;
+    background: var(--color-bg);
+  }
+
+  #root {
+    min-height: 100vh;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+  }
+
+  ::selection {
+    background: rgb(49 94 155 / 18%);
+  }
+
+  button:focus-visible,
+  a:focus-visible,
+  select:focus-visible,
+  input:focus-visible,
+  tr:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
 }
 
-* {
-  box-sizing: border-box;
-  scrollbar-color: var(--color-line-strong) var(--color-bg);
-  scrollbar-width: thin;
+@layer components {
+  /* Cards: one surface, one border, one radius, one shadow. */
+  .card {
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-card);
+    background: var(--color-card);
+    box-shadow: var(--shadow-card);
+  }
+
+  .mono {
+    font-family: var(--font-mono);
+    font-feature-settings: "zero";
+  }
+
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .eyebrow {
+    font-size: 0.6875rem;
+    line-height: 1rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+  }
+
+  /* Data tables: compact, readable rows with a quiet header. */
+  .data-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    text-align: left;
+  }
+
+  .data-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--color-sunken);
+    border-bottom: 1px solid var(--color-line);
+    padding: 0.5rem 1rem;
+    font-size: 0.6875rem;
+    line-height: 1rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+    white-space: nowrap;
+  }
+
+  .data-table tbody td {
+    border-bottom: 1px solid var(--color-line);
+    padding: 0.625rem 1rem;
+    font-size: 0.8125rem;
+    line-height: 1.25rem;
+    vertical-align: middle;
+  }
+
+  .data-table tbody tr:last-child td {
+    border-bottom: 0;
+  }
+
+  .data-table tbody tr.row-link {
+    cursor: pointer;
+    transition: background-color 150ms ease;
+  }
+
+  .data-table tbody tr.row-link:hover {
+    background: var(--color-hover);
+  }
 }
 
-html,
-body {
-  min-width: 320px;
-  min-height: 100%;
-  margin: 0;
-  background: var(--color-bg);
-}
-
-#root {
-  min-height: 100vh;
-}
-
-button,
-input,
-select,
-textarea {
-  font: inherit;
-}
-
-button {
-  cursor: pointer;
-}
-
-button:disabled {
-  cursor: not-allowed;
-}
-
-::selection {
-  background: rgb(34 211 238 / 25%);
-  color: #ecfeff;
-}
-
-button:focus-visible,
-a:focus-visible,
-select:focus-visible,
-input:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
-}
-
-/* Cards: one surface, one border, one radius, one shadow. */
-.card {
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-card);
-  background: var(--color-card);
-  box-shadow: var(--shadow-card);
-}
-
-.panel {
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-card);
-  background: var(--color-card);
-  box-shadow: var(--shadow-card);
-}
-
-.mono {
-  font-family: var(--font-mono);
-  font-feature-settings: "zero";
-}
-
-.tabular {
-  font-variant-numeric: tabular-nums;
-}
-
-.eyebrow {
-  font-size: 0.75rem;
-  line-height: 1rem;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--color-subtle);
-}
-
-/* Faint grid behind the app, for the command-centre feel. */
-.backdrop-grid {
-  background-image:
-    radial-gradient(1200px 500px at 70% -10%, rgb(34 211 238 / 6%), transparent 60%),
-    linear-gradient(rgb(255 255 255 / 2%) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(255 255 255 / 2%) 1px, transparent 1px);
-  background-size: auto, 32px 32px, 32px 32px;
-}
-
-/* ---------- Motion (fast, subtle; disabled for reduced motion) ---------- */
+/* ---------- Motion (restrained; disabled for reduced motion) ---------- */
 
 @keyframes sg-flash {
   0% {
-    background-color: rgb(34 211 238 / 12%);
-    box-shadow: inset 2px 0 0 var(--color-accent);
+    background-color: rgb(49 94 155 / 12%);
   }
   100% {
     background-color: transparent;
-    box-shadow: inset 2px 0 0 transparent;
   }
 }
 
-.flash {
+.flash,
+.flash > td {
   animation: sg-flash 2.4s ease-out;
 }
 
 @keyframes sg-pop {
   0% {
-    transform: scale(1.15);
+    transform: scale(1.12);
   }
   100% {
     transform: scale(1);
@@ -167,7 +219,7 @@ input:focus-visible {
 
 .score-pop {
   display: inline-block;
-  animation: sg-pop 0.25s ease-out;
+  animation: sg-pop 0.2s ease-out;
 }
 
 @keyframes sg-enter {
@@ -182,7 +234,7 @@ input:focus-visible {
 }
 
 .enter {
-  animation: sg-enter 0.22s ease-out;
+  animation: sg-enter 0.2s ease-out;
 }
 
 @keyframes sg-grow-y {
@@ -196,13 +248,13 @@ input:focus-visible {
 
 .grow-y {
   transform-origin: top;
-  animation: sg-grow-y 0.25s ease-out;
+  animation: sg-grow-y 0.2s ease-out;
 }
 
 @keyframes sg-toast-in {
   from {
     opacity: 0;
-    transform: translateX(16px);
+    transform: translateY(8px);
   }
   to {
     opacity: 1;
@@ -211,60 +263,62 @@ input:focus-visible {
 }
 
 .toast-in {
-  animation: sg-toast-in 0.2s ease-out;
+  animation: sg-toast-in 0.18s ease-out;
 }
 
 @keyframes sg-shimmer {
   0% {
-    background-position: -200px 0;
+    background-position: -240px 0;
   }
   100% {
-    background-position: 200px 0;
+    background-position: 240px 0;
   }
 }
 
 .skeleton {
   border-radius: 6px;
-  background: linear-gradient(
-      90deg,
-      transparent,
-      rgb(255 255 255 / 4%),
-      transparent
-    )
-    var(--color-raised);
-  background-size: 200px 100%;
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 70%), transparent) #edf1f6;
+  background-size: 240px 100%;
   background-repeat: no-repeat;
   animation: sg-shimmer 1.2s linear infinite;
 }
 
-@keyframes sg-glow {
-  0%,
-  100% {
-    box-shadow: 0 0 0 1px rgb(244 63 94 / 55%), 0 0 18px -2px rgb(244 63 94 / 45%);
+@keyframes sg-pulse-dot {
+  0% {
+    box-shadow: 0 0 0 0 rgb(6 118 71 / 35%);
   }
-  50% {
-    box-shadow: 0 0 0 1px rgb(244 63 94 / 75%), 0 0 26px 0 rgb(244 63 94 / 55%);
+  70% {
+    box-shadow: 0 0 0 5px rgb(6 118 71 / 0%);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgb(6 118 71 / 0%);
   }
 }
 
-.glow-critical {
-  animation: sg-glow 2.4s ease-in-out infinite;
+.live-dot {
+  animation: sg-pulse-dot 2s ease-out infinite;
+}
+
+@keyframes sg-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spin {
+  animation: sg-spin 0.8s linear infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .flash,
+  .flash > td,
   .score-pop,
   .enter,
   .grow-y,
   .toast-in,
   .skeleton,
-  .glow-critical,
-  .animate-ping {
+  .live-dot {
     animation: none !important;
-  }
-
-  .glow-critical {
-    box-shadow: 0 0 0 1px rgb(244 63 94 / 60%), 0 0 18px -2px rgb(244 63 94 / 45%);
   }
 
   * {

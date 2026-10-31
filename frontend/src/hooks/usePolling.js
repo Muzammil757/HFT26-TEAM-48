@@ -6,6 +6,8 @@ import { useEffect, useId, useState } from "react";
  * navigation, so switching pages never flashes a loading state.
  */
 const stores = new Map();
+// Time of the most recent successful poll of any endpoint (for "Last refreshed").
+let lastSuccessAt = null;
 
 function isOffline() {
   for (const store of stores.values()) {
@@ -18,9 +20,27 @@ function publishBackendStatus() {
   if (typeof window === "undefined") return;
   window.dispatchEvent(
     new CustomEvent("shadowguard:backend-status", {
-      detail: { offline: isOffline() },
+      detail: { offline: isOffline(), lastSuccessAt },
     }),
   );
+}
+
+/** Poll every active endpoint right now (the top bar's refresh button). */
+export function refreshAll() {
+  const active = [...stores.values()].filter((store) => store.listeners.size > 0);
+  return Promise.all(active.map((store) => runPoll(store)));
+}
+
+/** Timestamp (ms) of the last successful poll of any endpoint; re-renders on change. */
+export function useLastRefreshed() {
+  const [at, setAt] = useState(lastSuccessAt);
+  useEffect(() => {
+    const handle = (event) => setAt(event.detail?.lastSuccessAt ?? null);
+    window.addEventListener("shadowguard:backend-status", handle);
+    setAt(lastSuccessAt);
+    return () => window.removeEventListener("shadowguard:backend-status", handle);
+  }, []);
+  return at;
 }
 
 export function getPollingOfflineStatus() {
@@ -49,6 +69,7 @@ async function runPoll(store) {
     const data = await store.fn();
     store.state = { data, error: null, loading: false };
     store.status = "online";
+    lastSuccessAt = Date.now();
   } catch (error) {
     // Keep the last good data. Only network failures mean "offline"; an HTTP
     // error (e.g. 404 for a deleted incident) means the server is reachable.

@@ -1,44 +1,26 @@
-import { useMemo, useState } from "react";
-import { Activity, Clock3, Network, Search, ShieldCheck, ShieldOff, Waypoints } from "lucide-react";
-import { getStats } from "../api";
-import usePolling from "../hooks/usePolling";
-import {
-  Card,
-  CountUp,
-  EmptyState,
-  PageHeader,
-  PageShell,
-  ProviderChip,
-  ProviderStatusBadge,
-  Skeleton,
-  formatNumber,
-} from "../components/ui.jsx";
+import { useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
+import { Activity, Boxes, CircleAlert, Search, ShieldAlert, ShieldCheck } from "lucide-react";
+import { getStats } from "../api.js";
+import { providerRows } from "../components/overview/ProviderUsageCard.jsx";
+import { ApprovalLabel, ProviderName } from "../components/ui/Badges.jsx";
+import Card from "../components/ui/Card.jsx";
+import { ClearFiltersButton, SearchInput, Segmented, SortHeader, Toolbar } from "../components/ui/Controls.jsx";
+import CountUp from "../components/ui/CountUp.jsx";
+import { PageHeader, PageShell } from "../components/ui/Page.jsx";
+import { EmptyState, Skeleton, TableSkeleton } from "../components/ui/States.jsx";
+import usePolling from "../hooks/usePolling.js";
+import { formatDateTime, formatNumber, plural, relativeTime } from "../lib/format.js";
 
-function relativeTime(value) {
-  if (!value) return "Never";
-  const timestamp = new Date(value).getTime();
-  if (Number.isNaN(timestamp)) return "Unknown";
-  const seconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
-  if (seconds < 10) return "Just now";
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return new Date(timestamp).toLocaleDateString(undefined, { day: "2-digit", month: "short" });
-}
-
-function SummaryCard({ label, value, hint, icon: Icon, tone, loading }) {
+function Metric({ label, value, icon: Icon, tone, loading, hint }) {
   return (
-    <div className="card flex h-24 min-w-0 items-center gap-4 px-6" title={hint}>
-      <span className={`rounded-lg border p-2 ${tone}`}>
-        <Icon size={18} />
+    <div className="flex min-w-0 items-center gap-3 px-4 py-3" title={hint}>
+      <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md border ${tone}`}>
+        <Icon size={15} />
       </span>
       <div className="min-w-0">
-        <p className="eyebrow">{label}</p>
-        <div className="mt-1 h-9 text-title font-semibold text-fg">
-          {loading ? <Skeleton className="h-8 w-12" /> : <CountUp value={value} />}
-        </div>
+        <p className="truncate text-xs text-muted">{label}</p>
+        <div className="h-7 text-xl font-semibold text-fg">{loading ? <Skeleton className="mt-1 h-5 w-12" /> : <CountUp value={value} />}</div>
       </div>
     </div>
   );
@@ -46,173 +28,153 @@ function SummaryCard({ label, value, hint, icon: Icon, tone, loading }) {
 
 export default function Inventory() {
   const { data: stats, error } = usePolling(getStats, 3000, "stats");
-  const [search, setSearch] = useState("");
-  const [shadowOnly, setShadowOnly] = useState(false);
+  const [params, setParams] = useSearchParams();
+  const query = params.get("q") || "";
+  const view = params.get("view") === "shadow" ? "shadow" : "all";
+  const sort = ["requests-desc", "requests-asc"].includes(params.get("sort")) ? params.get("sort") : "default";
 
-  const inventory = useMemo(() => {
-    if (!Array.isArray(stats?.inventory)) return [];
-    return stats.inventory
-      .map((item) => ({
+  // Functional update: always apply changes to the latest URL, never a stale copy.
+  const update = (changes) =>
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        for (const [key, value] of Object.entries(changes)) {
+          if (!value || value === "all" || value === "default") next.delete(key);
+          else next.set(key, value);
+        }
+        return next;
+      },
+      { replace: true },
+    );
+  const filtersActive = Boolean(query.trim()) || view !== "all" || sort !== "default";
+
+  const inventory = useMemo(
+    () =>
+      (Array.isArray(stats?.inventory) ? stats.inventory : []).map((item) => ({
         source: item.source || "Unknown process",
         provider: item.provider || "Unknown provider",
         sanctioned: item.sanctioned === true,
         requests: Number(item.requests) || 0,
         last_seen: item.last_seen || null,
-      }))
-      .sort((a, b) => (a.sanctioned !== b.sanctioned ? Number(a.sanctioned) - Number(b.sanctioned) : b.requests - a.requests));
-  }, [stats]);
+      })),
+    [stats],
+  );
 
-  const filtered = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return inventory.filter(
+  const rows = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const filtered = inventory.filter(
       (item) =>
-        (item.source.toLowerCase().includes(query) ||
-          item.provider.toLowerCase().includes(query) ||
-          (item.sanctioned ? "approved" : "shadow").includes(query)) &&
-        (!shadowOnly || !item.sanctioned),
+        (!q || item.source.toLowerCase().includes(q) || item.provider.toLowerCase().includes(q)) &&
+        (view === "all" || !item.sanctioned),
     );
-  }, [inventory, search, shadowOnly]);
+    return filtered.sort((a, b) => {
+      if (sort === "requests-desc") return b.requests - a.requests;
+      if (sort === "requests-asc") return a.requests - b.requests;
+      // Default: shadow first, then busiest.
+      return a.sanctioned !== b.sanctioned ? Number(a.sanctioned) - Number(b.sanctioned) : b.requests - a.requests;
+    });
+  }, [inventory, query, view, sort]);
 
-  // Cards count unique process names; one process can use several providers.
-  const processes = new Set(inventory.map((item) => item.source));
-  const shadowProcesses = new Set(inventory.filter((item) => !item.sanctioned).map((item) => item.source));
-  const approvedOnly = [...processes].filter((source) => !shadowProcesses.has(source));
-  const loading = stats == null;
+  // Summary metrics from stats.by_provider (per-provider totals).
+  const providers = useMemo(() => providerRows(stats?.by_provider), [stats]);
+  const shadowProviders = providers.filter((p) => p.shadow > 0).length;
+  const totalRequests = providers.reduce((sum, p) => sum + p.approved + p.shadow, 0);
+  const loading = stats == null && !error;
+  const now = Date.now();
 
   return (
     <PageShell>
       <PageHeader
-        title="Shadow AI Inventory"
-        subtitle="Which local processes talk to which AI providers, from connection metadata and request logs; no decryption"
+        title="AI Inventory"
+        subtitle="Discover AI providers and understand where AI usage originates."
       />
 
-      <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
-        <SummaryCard
-          label="Processes"
-          value={processes.size}
-          hint="Unique process names seen talking to an AI provider"
+      <section className="card grid grid-cols-2 divide-line xl:grid-cols-4 xl:divide-x [&>*:nth-child(-n+2)]:border-b [&>*:nth-child(-n+2)]:border-line xl:[&>*:nth-child(-n+2)]:border-b-0">
+        <Metric label="Detected providers" value={providers.length} icon={Boxes} tone="border-line bg-sunken text-muted" loading={loading} />
+        <Metric label="Approved providers" value={providers.length - shadowProviders} icon={ShieldCheck} tone="border-approved-line bg-approved-soft text-approved" loading={loading} />
+        <Metric label="Shadow providers" value={shadowProviders} icon={ShieldAlert} tone="border-shadow-line bg-shadow-soft text-shadow" loading={loading} />
+        <Metric
+          label="Total recorded requests"
+          value={totalRequests}
           icon={Activity}
-          tone="border-accent/30 bg-accent/10 text-accent"
+          tone="border-[#d5e0ee] bg-accent-soft text-accent"
           loading={loading}
+          hint="AI requests and connections attributed to a provider"
         />
-        <SummaryCard
-          label="Using shadow AI"
-          value={shadowProcesses.size}
-          hint="Processes that used at least one unapproved provider"
-          icon={ShieldOff}
-          tone="border-shadow/30 bg-shadow/10 text-shadow"
-          loading={loading}
-        />
-        <SummaryCard
-          label="Approved only"
-          value={approvedOnly.length}
-          hint="Processes that only used approved providers"
-          icon={ShieldCheck}
-          tone="border-approved/30 bg-approved/10 text-approved"
-          loading={loading}
-        />
-        <SummaryCard
-          label="Pairs"
-          value={inventory.length}
-          hint="Rows in the table below"
-          icon={Waypoints}
-          tone="border-line-strong bg-raised text-muted"
-          loading={loading}
-        />
-      </div>
+      </section>
 
       <Card
-        title="Process → provider"
-        subtitle={`Showing ${filtered.length} of ${inventory.length} pairs · shadow first`}
-        icon={Network}
-        actions={
-          <div className="flex items-center gap-2">
-            <label className="relative block w-56">
-              <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-subtle" />
-              <input
-                type="search"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search…"
-                aria-label="Search by process or provider"
-                className="w-full rounded-lg border border-line bg-bg py-1.5 pl-9 pr-3 text-sm text-fg outline-none placeholder:text-subtle focus:border-accent/60"
-              />
-            </label>
-            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-line bg-bg px-3 py-1.5 text-sm text-muted transition-colors duration-150 hover:border-line-strong">
-              <input
-                type="checkbox"
-                checked={shadowOnly}
-                onChange={(event) => setShadowOnly(event.target.checked)}
-                className="h-3.5 w-3.5 accent-[var(--color-shadow)]"
-              />
-              Shadow only
-            </label>
-          </div>
-        }
+        title="Process → provider inventory"
+        subtitle="Built from connection metadata and request logs · no TLS decryption"
+        icon={Boxes}
       >
-        {loading ? (
+        <Toolbar trailing={stats != null && <span>{plural(rows.length, "row")} of {inventory.length}</span>}>
+          <SearchInput value={query} onChange={(value) => update({ q: value })} placeholder="Search process or provider" className="w-72" />
+          <Segmented
+            label="Provider status"
+            value={view}
+            onChange={(value) => update({ view: value })}
+            options={[
+              { value: "all", label: "All providers" },
+              { value: "shadow", label: "Shadow only", icon: ShieldAlert },
+            ]}
+          />
+          <ClearFiltersButton onClick={() => update({ q: "", view: "all", sort: "default" })} disabled={!filtersActive} />
+        </Toolbar>
+
+        {stats == null ? (
           error ? (
-            <EmptyState icon={Network} title="Waiting for the backend" hint={error.message || String(error)} />
+            <EmptyState icon={CircleAlert} title="Waiting for the backend" hint="The inventory loads automatically once the API is reachable." />
           ) : (
-            <div className="divide-y divide-line">
-              {Array.from({ length: 5 }, (_, i) => (
-                <div key={i} className="flex items-center gap-6 px-6 py-4">
-                  <Skeleton className="h-4 w-32" />
-                  <Skeleton className="h-6 w-28" />
-                  <Skeleton className="h-6 w-20" />
-                  <Skeleton className="ml-auto h-4 w-12" />
-                </div>
-              ))}
-            </div>
+            <TableSkeleton rows={6} cols={5} />
           )
-        ) : filtered.length === 0 ? (
+        ) : rows.length === 0 ? (
           <EmptyState
             icon={Search}
-            title={search.trim() ? "No processes match your search" : shadowOnly ? "No shadow AI detected" : "No AI traffic detected yet"}
-            hint="The inventory updates automatically as connections and requests are collected."
+            title={inventory.length ? "No rows match these filters" : "No AI traffic detected yet"}
+            hint={
+              inventory.length
+                ? "Adjust or clear the filters."
+                : "The inventory fills in as connections and request logs are collected."
+            }
           />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[680px] text-left">
+            <table className="data-table min-w-[720px]">
               <thead>
-                <tr className="eyebrow border-b border-line">
-                  <th className="px-6 py-2 font-semibold">Process</th>
-                  <th className="px-6 py-2 font-semibold">Provider</th>
-                  <th className="px-6 py-2 font-semibold">Status</th>
-                  <th className="px-6 py-2 text-right font-semibold">Requests</th>
-                  <th className="px-6 py-2 text-right font-semibold">
-                    <span className="inline-flex items-center gap-1">
-                      <Clock3 size={12} /> Last seen
-                    </span>
-                  </th>
+                <tr>
+                  <th>Process / Source</th>
+                  <th>AI Provider</th>
+                  <th>Approval Status</th>
+                  <SortHeader
+                    align="right"
+                    direction={sort === "requests-desc" ? "desc" : sort === "requests-asc" ? "asc" : null}
+                    onClick={() => update({ sort: sort === "requests-desc" ? "requests-asc" : "requests-desc" })}
+                    title="Sort by requests"
+                  >
+                    Requests
+                  </SortHeader>
+                  <th className="text-right">Last Seen</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-line">
-                {filtered.map((item) => (
-                  <tr
-                    key={`${item.source}-${item.provider}`}
-                    className="transition-colors duration-150 hover:bg-white/[0.02]"
-                    style={item.sanctioned ? undefined : { boxShadow: "inset 2px 0 0 var(--color-shadow)" }}
-                  >
-                    <td className="max-w-[260px] px-6 py-3">
-                      <p title={item.source} className="mono truncate text-sm font-medium text-fg">
+              <tbody>
+                {rows.map((item) => (
+                  <tr key={`${item.source}|${item.provider}`} style={item.sanctioned ? undefined : { boxShadow: "inset 3px 0 0 #b42318" }}>
+                    <td className="max-w-[280px]">
+                      <span title={item.source} className="mono block truncate text-[13px] font-medium text-fg">
                         {item.source}
-                      </p>
-                    </td>
-                    <td className="px-6 py-3">
-                      <ProviderChip provider={item.provider} sanctioned={item.sanctioned} />
-                    </td>
-                    <td className="px-6 py-3">
-                      <ProviderStatusBadge sanctioned={item.sanctioned} />
-                    </td>
-                    <td className="mono px-6 py-3 text-right text-sm text-fg">{formatNumber(item.requests)}</td>
-                    <td className="px-6 py-3 text-right">
-                      <span
-                        title={item.last_seen ? new Date(item.last_seen).toLocaleString() : "No activity recorded"}
-                        className="whitespace-nowrap text-xs text-muted"
-                      >
-                        {relativeTime(item.last_seen)}
                       </span>
+                    </td>
+                    <td>
+                      <ProviderName provider={item.provider} />
+                    </td>
+                    <td>
+                      <ApprovalLabel sanctioned={item.sanctioned} />
+                    </td>
+                    <td className="mono text-right text-fg">{formatNumber(item.requests)}</td>
+                    <td className="whitespace-nowrap text-right">
+                      <span className="text-xs text-fg">{relativeTime(item.last_seen, now)}</span>
+                      <span className="block text-2xs text-muted">{item.last_seen ? formatDateTime(item.last_seen) : "—"}</span>
                     </td>
                   </tr>
                 ))}
