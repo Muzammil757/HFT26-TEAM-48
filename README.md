@@ -378,6 +378,8 @@ python tests/run_all.py            # detectors, correlator, Section 11 acceptanc
 python tests/run_all.py --live     # plus live acceptance and the privacy DB scan, with the demo running
 ```
 
+Code quality: `ruff check` (config in `pyproject.toml`) and `cd frontend && npm run lint` (ESLint flat config). GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs ruff, the tests, the frontend lint and the build on every push and pull request, and checks that the committed `backend/static` matches the build.
+
 ## Limitations
 
 - **Payload inspection only for request logs and plaintext traffic** (such as local Ollama). Live HTTPS traffic is identified by metadata only, never decrypted.
