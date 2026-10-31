@@ -44,7 +44,8 @@ _REGEX_RULES = [
         _PRIVATE_KEY_HEADER + r"(?:[\s\S]{0,10000}?-----END (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----)?"), 0),
     (CREDENTIAL, "JWT", re.compile(r"\beyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"), 0),
     (PII, "Email", re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"), 0),
-    (PII, "Phone_IN", re.compile(r"(?:\+91[\s-]?)?\b[6-9]\d{9}\b"), 0),
+    # 10 digits starting 6-9, optionally split 5+5 by one space or dash ("98765 43210").
+    (PII, "Phone_IN", re.compile(r"(?:\+91[\s-]?)?\b[6-9]\d{4}[ -]?\d{5}\b"), 0),
     (PII, "PAN", re.compile(r"\b[A-Z]{5}[0-9]{4}[A-Z]\b"), 0),
     (PII, "Aadhaar", re.compile(r"\b[2-9]\d{3}\s?\d{4}\s?\d{4}\b"), 0),
     (PII, "Credit_Card", re.compile(r"\b(?:\d[ -]?){13,19}\b"), 0),

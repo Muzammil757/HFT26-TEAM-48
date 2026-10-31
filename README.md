@@ -10,7 +10,7 @@ Built for the *AI Shadow IT & Agentic Data Exfiltration* problem: developers and
 
 1. **Zero-decryption Shadow AI inventory.** A live table of *process → AI provider → Approved or SHADOW*, built from connection metadata (process name, PID, remote host and port) and request logs. No TLS interception anywhere.
 2. **Agentic exfiltration chain detection.** When an agent reads a sensitive file (`.env`, `~/.aws/credentials`), runs a shell command, and then sends a credential to an LLM within 60 seconds, ShadowGuard raises **one** correlated critical incident and shows it as a timeline — even when the events arrive one at a time.
-3. **Privacy-preserving AI triage.** "Analyze with AI" sends the Featherless LLM only redacted fields (provider, scores, a one-sentence context, redacted evidence) — never a payload, a raw secret or a fingerprint. If the LLM is slow or unavailable, a deterministic rule engine answers instead.
+3. **Privacy-preserving AI triage.** "Generate AI Analysis" sends the Featherless LLM only redacted fields (provider, scores, a one-sentence context, redacted evidence) — never a payload, a raw secret or a fingerprint. If the LLM is slow or unavailable, a deterministic rule engine answers instead.
 
 Also: explainable 0–10 risk scores with a factor-by-factor breakdown, validators that keep false positives down (Luhn, Verhoeff, JWT header check, entropy exclusions), and India-aware PII detection (Aadhaar, PAN, +91 phone numbers).
 
@@ -76,7 +76,7 @@ ShadowGuard never intercepts or decrypts TLS. It has two input tiers:
 - **Findings keep redacted evidence only.** Credentials are shown as first 4 + `*` + last 4 (`AKIA************MPLE`), PII as all but the last 4 (`XXXX XXXX 3346`, `p***@example.com`), private keys as `-----BEGIN RSA PRIVATE KEY----- [redacted]`.
 - **Fingerprints are keyed and stay local.** Each finding stores a fingerprint, the first 12 hex characters of HMAC-SHA256 of the matched value. The same value always gets the same fingerprint on this install, so "this key leaked 4 times" still works. Without the key, nobody can recover a value from its fingerprint, not even a short one like a phone number. The key comes from the `FINGERPRINT_KEY` environment variable, or a random 32-byte key generated on first run in `backend/.fingerprint_key`. That file is git-ignored, never logged, and never leaves this machine. Fingerprints are stored locally and are **not** sent to the LLM.
 - **The LLM sees only redacted fields:** `provider`, `sanctioned`, `source`, `severity`, `score_breakdown`, `agent_context`, and each finding's `category` / `rule` / `redacted_evidence`. The server logs exactly what it sends, once per call, so this can be shown live.
-- **Local only.** The API binds to `127.0.0.1`; the database is a single local, git-ignored file. The Featherless call is the only outbound request, and only when an admin clicks *Analyze with AI*.
+- **Local only.** The API binds to `127.0.0.1`; the database is a single local, git-ignored file. The Featherless call is the only outbound request, and only when an admin clicks *Generate AI Analysis*.
 
 ## Setup
 
@@ -116,13 +116,13 @@ npm install
 npm run dev                     # http://127.0.0.1:5173
 ```
 
-`backend/.env` is git-ignored. Never commit a real key. Without a key, *Analyze with AI* uses the built-in offline rules.
+`backend/.env` is git-ignored. Never commit a real key. Without a key, *Generate AI Analysis* uses the built-in offline rules.
 
 ### Environment flags
 
 | Variable | Default | Effect |
 |---|---|---|
-| `FEATHERLESS_API_KEY`, `FEATHERLESS_MODEL` | unset | Enable the Featherless LLM for *Analyze with AI*; otherwise offline rules are used. |
+| `FEATHERLESS_API_KEY`, `FEATHERLESS_MODEL` | unset | Enable the Featherless LLM for *Generate AI Analysis*; otherwise offline rules are used. |
 | `COLLECTOR_ENABLED` | `1` | Set to `0` to turn off the live connection collector (e.g. if the OS blocks `psutil`). |
 | `SEED_MOCK` | unset | Set to `1` to seed `frontend/src/mocks/mock_incidents.json` into an empty database. |
 | `FINGERPRINT_KEY` | unset | Secret for keyed fingerprints. If unset, a random key is generated once into `backend/.fingerprint_key` (git-ignored). |
@@ -179,11 +179,11 @@ This regenerates the demo data with recent timestamps, deletes the database, wai
 
 On stage:
 
-1. **Overview** — AI requests, shadow AI share, open incidents and providers.
-2. **Shadow AI Inventory** — which process uses which provider, approved vs SHADOW.
+1. **Overview** — AI requests, shadow AI share, Incidents Detected and providers.
+2. **AI Inventory** — which process uses which provider, approved vs SHADOW.
 3. Run `python demo_agent.py` — the agent-chain incident builds live: score 3 → 6 → 10, with toast notifications.
 4. **Incident detail** — risk gauge 10/10, the score breakdown, and the chain timeline `.env` read → shell command → AWS key sent to OpenAI within seconds.
-5. **Analyze with AI** — Featherless returns a summary and a remediation checklist, from redacted data only.
+5. **Generate AI Analysis** — Featherless returns a summary and a remediation checklist, from redacted data only.
 6. The false-positive bait file (UUIDs, git SHAs, MD5s, a base64 image, numbers that fail Luhn/Verhoeff) produced zero findings.
 7. **Live Test Console** — let a judge type a prompt (or click an example) and watch it get scanned, masked and scored live.
 
