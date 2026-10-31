@@ -1,17 +1,23 @@
 import { useCallback } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, TriangleAlert } from "lucide-react";
 import { getIncident } from "../api.js";
 import AnalysisPanel from "../components/incident-detail/AnalysisPanel.jsx";
+import DetailTabs from "../components/incident-detail/DetailTabs.jsx";
 import EventTimeline from "../components/incident-detail/EventTimeline.jsx";
 import FindingsTable from "../components/incident-detail/FindingsTable.jsx";
-import IncidentSummary from "../components/incident-detail/IncidentSummary.jsx";
+import IncidentHeader from "../components/incident-detail/IncidentHeader.jsx";
 import ScoreBreakdown from "../components/incident-detail/ScoreBreakdown.jsx";
+import SummaryTab from "../components/incident-detail/SummaryTab.jsx";
 import { PageShell } from "../components/ui/Page.jsx";
 import { EmptyState, InlineAlert, Skeleton } from "../components/ui/States.jsx";
 import useHighlights from "../hooks/useHighlights.js";
+import useIncidentAnalysis from "../hooks/useIncidentAnalysis.js";
 import usePolling, { useBackendOffline } from "../hooks/usePolling.js";
+import useTabDots from "../hooks/useTabDots.js";
 import { errorMessage } from "../lib/format.js";
+
+const TABS = ["summary", "timeline", "findings", "score", "analysis"];
 
 function BackLink() {
   // Return to the Incidents page with the filters it had.
@@ -43,6 +49,22 @@ function IncidentDetail({ id }) {
   // Live: polled every 3 s, so the score climbs (3 -> 6 -> 10) without a reload.
   const { data: incident, error, loading } = usePolling(fetchIncident, 3000, `incident:${id}`);
   const offline = useBackendOffline();
+  const analysisState = useIncidentAnalysis(id, incident, offline);
+
+  // Active tab lives in the URL (?tab=), default summary.
+  const [params, setParams] = useSearchParams();
+  const tab = TABS.includes(params.get("tab")) ? params.get("tab") : "summary";
+  const openTab = (next) =>
+    setParams(
+      (prev) => {
+        const p = new URLSearchParams(prev);
+        if (next === "summary") p.delete("tab");
+        else p.set("tab", next);
+        return p;
+      },
+      { replace: true },
+    );
+  const dots = useTabDots(incident, tab);
 
   const scoreChanged = useHighlights(
     incident ? [incident] : null,
@@ -57,14 +79,11 @@ function IncidentDetail({ id }) {
       <PageShell>
         <BackLink />
         <div className="card space-y-3 p-5">
-          <Skeleton className="h-5 w-48" />
+          <Skeleton className="h-5 w-40" />
           <Skeleton className="h-6 w-3/4" />
-          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-4 w-1/2" />
         </div>
-        <div className="grid gap-3 lg:grid-cols-12">
-          <Skeleton className="h-80 rounded-[10px] lg:col-span-7" />
-          <Skeleton className="h-80 rounded-[10px] lg:col-span-5" />
-        </div>
+        <Skeleton className="h-64 rounded-[10px]" />
       </PageShell>
     );
   }
@@ -84,6 +103,15 @@ function IncidentDetail({ id }) {
     );
   }
 
+  const events = incident.events || [];
+  const tabs = [
+    { id: "summary", label: "Summary" },
+    { id: "timeline", label: "Timeline", count: events.length },
+    { id: "findings", label: "Findings", count: (incident.findings || []).length },
+    { id: "score", label: "Risk score" },
+    { id: "analysis", label: "AI analysis" },
+  ].map((t) => ({ ...t, dot: dots.has(t.id) }));
+
   return (
     <PageShell>
       <BackLink />
@@ -94,18 +122,24 @@ function IncidentDetail({ id }) {
         </InlineAlert>
       )}
 
-      <IncidentSummary incident={incident} scoreChanged={scoreChanged} />
+      <IncidentHeader incident={incident} scoreChanged={scoreChanged}>
+        <DetailTabs tabs={tabs} active={tab} onChange={openTab} />
+      </IncidentHeader>
 
-      <div className="grid grid-cols-1 items-start gap-3 lg:grid-cols-12">
-        {/* Left: what happened and the evidence. Right: why it scored, and what to do. */}
-        <div className="space-y-3 lg:col-span-7">
-          <EventTimeline incident={incident} newEvents={newEvents} />
-          <FindingsTable incident={incident} />
-        </div>
-        <div className="space-y-3 lg:col-span-5">
-          <ScoreBreakdown incident={incident} newFactors={newFactors} />
-          <AnalysisPanel id={id} incident={incident} offline={offline} />
-        </div>
+      <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`}>
+        {tab === "summary" && <SummaryTab incident={incident} analysisState={analysisState} offline={offline} openTab={openTab} />}
+        {tab === "timeline" && <EventTimeline incident={incident} newEvents={newEvents} />}
+        {tab === "findings" && <FindingsTable incident={incident} />}
+        {tab === "score" && (
+          <div className="max-w-3xl">
+            <ScoreBreakdown incident={incident} newFactors={newFactors} />
+          </div>
+        )}
+        {tab === "analysis" && (
+          <div className="max-w-4xl">
+            <AnalysisPanel state={analysisState} offline={offline} />
+          </div>
+        )}
       </div>
     </PageShell>
   );

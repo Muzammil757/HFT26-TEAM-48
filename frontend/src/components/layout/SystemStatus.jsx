@@ -1,63 +1,46 @@
-import { Cpu, Radar, Server } from "lucide-react";
+import { Cpu, Radar } from "lucide-react";
 import { getHealth } from "../../api.js";
 import usePolling, { useBackendOffline } from "../../hooks/usePolling.js";
 import { describeEngine } from "../../lib/analysis.js";
 
-function StatusRow({ icon: Icon, label, value, detail, tone }) {
-  const dot = { ok: "bg-approved", off: "bg-subtle", bad: "bg-critical" }[tone] || "bg-subtle";
+function StatusLine({ icon: Icon, label, value, title, on }) {
   return (
-    <div className="flex items-start gap-2.5 py-1.5">
-      <Icon size={14} className="mt-0.5 shrink-0 text-muted" />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-xs text-muted">{label}</span>
-          <span className="flex items-center gap-1.5 text-xs font-medium text-fg">
-            <span className={`h-1.5 w-1.5 rounded-full ${dot}`} aria-hidden="true" />
-            {value}
-          </span>
-        </div>
-        {detail && (
-          <p className="mono truncate text-right text-2xs text-muted" title={detail}>
-            {detail}
-          </p>
-        )}
-      </div>
+    <div className="flex items-center gap-2 py-1 text-xs" title={title}>
+      <Icon size={13} className="shrink-0 text-muted" />
+      <span className="text-muted">{label}</span>
+      <span className="ml-auto flex min-w-0 items-center gap-1.5 font-medium text-fg">
+        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${on ? "bg-approved" : "bg-subtle"}`} aria-hidden="true" />
+        <span className="truncate">{value}</span>
+      </span>
     </div>
   );
 }
 
-/** Sidebar footer: API, analyzer engine and collector status from /api/health. */
+/** Sidebar footer: analyzer engine and collector status from /api/health (API status lives in the top bar). */
 export default function SystemStatus() {
   const { data: health } = usePolling(getHealth, 3000, "health");
   const offline = useBackendOffline();
-  const engine = describeEngine(health?.analyzer);
   const known = Boolean(health) && !offline;
+  const engine = known ? describeEngine(health.analyzer) : null;
+  const collector = known ? health.collector : null;
 
   return (
-    <div className="border-t border-line px-4 pb-4 pt-3">
-      <p className="eyebrow mb-1">System status</p>
-      <StatusRow
-        icon={Server}
-        label="API"
-        value={offline ? "Offline" : health ? "Connected" : "Checking"}
-        tone={offline ? "bad" : health ? "ok" : "off"}
-      />
-      <StatusRow
+    <div className="border-t border-line px-4 pb-3 pt-2.5">
+      <StatusLine
         icon={Cpu}
         label="Analyzer"
-        value={known && engine ? engine.name : "Unknown"}
-        detail={known && engine?.llm ? engine.detail : undefined}
-        tone={known ? "ok" : "off"}
+        value={engine ? engine.name : "Unknown"}
+        title={known ? health.analyzer : "Backend unreachable"}
+        on={Boolean(engine)}
       />
-      <StatusRow
+      <StatusLine
         icon={Radar}
-        label="Live collector"
-        value={known ? (health.collector === "on" ? "On" : health.collector === "off" ? "Off" : "Unknown") : "Unknown"}
-        tone={known && health.collector === "on" ? "ok" : "off"}
+        label="Collector"
+        value={collector === "on" ? "On" : collector === "off" ? "Off" : "Unknown"}
+        title="Live connection collector (psutil metadata)"
+        on={collector === "on"}
       />
-      <p className="mt-2 rounded-md border border-line bg-sunken px-2.5 py-2 text-2xs leading-4 text-muted">
-        Detection only · No TLS decryption · Plaintext and log inspection
-      </p>
+      <p className="mt-1.5 text-[10px] leading-[14px] text-subtle">Detection only · No TLS decryption · Plaintext and log inspection</p>
     </div>
   );
 }

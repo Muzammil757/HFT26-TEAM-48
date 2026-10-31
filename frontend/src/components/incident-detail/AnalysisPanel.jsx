@@ -1,4 +1,3 @@
-import { useEffect, useRef, useState } from "react";
 import {
   Ban,
   CheckCircle2,
@@ -12,9 +11,7 @@ import {
   UserCheck,
   WifiOff,
 } from "lucide-react";
-import { analyzeIncident } from "../../api.js";
-import { describeEngine, parseAnalysis } from "../../lib/analysis.js";
-import { errorMessage } from "../../lib/format.js";
+import { describeEngine } from "../../lib/analysis.js";
 import { severityOf } from "../../lib/theme.js";
 import Card from "../ui/Card.jsx";
 import { InlineAlert, Skeleton } from "../ui/States.jsx";
@@ -95,58 +92,38 @@ function AnalysisResult({ analysis, stale }) {
  * Optional LLM triage. Detection never depends on it: the score and findings come
  * from deterministic rules; this panel only adds a summary and remediation steps.
  */
-export default function AnalysisPanel({ id, incident, offline }) {
-  const [analyzing, setAnalyzing] = useState(false);
-  const [analysisError, setAnalysisError] = useState(null);
-  // Last analysis this page received; stays visible if the backend later clears
-  // ai_analysis because the incident changed.
-  const [localAnalysis, setLocalAnalysis] = useState(null);
-  const latestIncidentRef = useRef(incident);
-  latestIncidentRef.current = incident;
-
-  // Analyze needs the backend; clear a stale error once it is reachable again.
-  useEffect(() => {
-    if (!offline) setAnalysisError(null);
-  }, [offline]);
-
-  async function handleAnalyze() {
-    if (analyzing || offline) return;
-    setAnalyzing(true);
-    setAnalysisError(null);
-    try {
-      const result = await analyzeIncident(id);
-      // Remember which polled copy was on screen when the analysis arrived.
-      setLocalAnalysis({ text: result.ai_analysis, polledAt: latestIncidentRef.current });
-    } catch (err) {
-      setAnalysisError(errorMessage(err) || "AI analysis failed");
-    } finally {
-      setAnalyzing(false);
-    }
-  }
-
-  // The backend stores the analysis, so a poll after it arrived still showing no
-  // ai_analysis means the incident changed and the backend cleared it. Until that
-  // next poll, the local copy is simply newer than the polled data.
-  const stale = !incident.ai_analysis && Boolean(localAnalysis) && incident !== localAnalysis.polledAt;
-  const analysis = parseAnalysis(incident.ai_analysis || localAnalysis?.text);
-
-  const button = (
+/** The one Analyze control, shared by the Summary and AI analysis tabs. */
+export function AnalyzeButton({ state, offline, size = "md" }) {
+  const { analysis, stale, analyzing, run } = state;
+  return (
     <button
       type="button"
-      onClick={handleAnalyze}
+      onClick={run}
       disabled={analyzing || offline}
       title={offline ? "Unavailable while the backend is offline" : undefined}
-      className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-[13px] font-semibold text-white shadow-[0_1px_2px_rgb(23_36_58/0.12)] transition-colors duration-150 hover:bg-accent-strong disabled:bg-[#9fb2cc]"
+      className={`inline-flex items-center gap-1.5 rounded-md bg-accent font-semibold text-white shadow-[0_1px_2px_rgb(23_36_58/0.12)] transition-colors duration-150 hover:bg-accent-strong disabled:bg-[#9fb2cc] ${
+        size === "sm" ? "h-7 px-2.5 text-xs" : "h-8 px-3 text-[13px]"
+      }`}
     >
       {analyzing ? <LoaderCircle size={14} className="spin" /> : stale ? <RotateCw size={14} /> : <Sparkles size={14} />}
       {analyzing ? "Analyzing…" : stale ? "Re-analyze" : analysis ? "Analysis ready" : "Generate AI Analysis"}
     </button>
   );
+}
+
+/**
+ * Optional LLM triage. Detection never depends on it: the score and findings come
+ * from deterministic rules; this panel only adds a summary and remediation steps.
+ * `state` comes from useIncidentAnalysis, shared with the Summary tab.
+ */
+export default function AnalysisPanel({ state, offline }) {
+  const { analysis, stale, analyzing, error: analysisError } = state;
+  const button = <AnalyzeButton state={state} offline={offline} />;
 
   return (
     <Card
       title="AI-assisted analysis"
-      subtitle="Optional · redacted data only"
+      subtitle="Optional triage · detection does not depend on it"
       icon={Sparkles}
       actions={(!analysis || stale || analyzing) && button}
     >

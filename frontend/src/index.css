@@ -222,6 +222,25 @@
   animation: sg-pop 0.2s ease-out;
 }
 
+/* Header score badge: a ring pulse when the live score changes. */
+@keyframes sg-score-pulse {
+  0% {
+    transform: scale(1.08);
+    box-shadow: 0 0 0 0 rgb(180 35 24 / 45%);
+  }
+  60% {
+    transform: scale(1);
+    box-shadow: 0 0 0 8px rgb(180 35 24 / 0%);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgb(180 35 24 / 0%);
+  }
+}
+
+.score-pulse {
+  animation: sg-score-pulse 0.9s ease-out 2;
+}
+
 @keyframes sg-enter {
   from {
     opacity: 0;
@@ -313,6 +332,7 @@
   .flash,
   .flash > td,
   .score-pop,
+  .score-pulse,
   .enter,
   .grow-y,
   .toast-in,
