@@ -350,6 +350,15 @@ Events are grouped into sessions (`session_id`, else `source:pid`) and each touc
 
 `risk_score = min(10, sum)`; each factor counts once. An incident is created at a score of 3 or more. Severity: critical ≥ 8, high 5–7, medium 3–4. Approved providers: OpenAI and Featherless; every other provider is shadow AI.
 
+## Tests
+
+Plain Python verification scripts in [`tests/`](tests/README.md) (fake data only, no pytest needed):
+
+```bash
+python tests/run_all.py            # detectors, correlator, Section 11 acceptance (offline)
+python tests/run_all.py --live     # plus live acceptance and the privacy DB scan, with the demo running
+```
+
 ## Limitations
 
 - **Payload inspection only for request logs and plaintext traffic** (such as local Ollama). Live HTTPS traffic is identified by metadata only, never decrypted.
