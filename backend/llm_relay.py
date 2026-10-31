@@ -23,6 +23,7 @@ Environment:
 import http.client
 import itertools
 import json
+import logging
 import os
 import sys
 import time
@@ -37,6 +38,7 @@ for _stream in (sys.stdout, sys.stderr):
         pass
 
 import psutil  # noqa: E402
+from logging_setup import setup_logging  # noqa: E402
 import requests  # noqa: E402
 
 HOST = "127.0.0.1"  # local only, never 0.0.0.0
@@ -51,8 +53,7 @@ HOP_BY_HOP = {"connection", "keep-alive", "proxy-connection", "transfer-encoding
 _counter = itertools.count(1)
 
 
-def log(msg: str) -> None:
-    print(f"[relay {datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
+log = logging.getLogger("shadowguard.relay")
 
 
 def identify_client(client_port: int) -> tuple[str, int | None]:
@@ -91,21 +92,24 @@ def report(path: str, body: bytes, client_port: int) -> None:
         resp = requests.post(INGEST_URL, json=[event], timeout=10)
         resp.raise_for_status()
         result = resp.json()
-        log(f"scanned {path} from {source} (pid {pid}): {len(body)} bytes, "
+        log.info(f"scanned {path} from {source} (pid {pid}): {len(body)} bytes, "
             f"incidents in session: {result.get('incidents', 0)}")
     except (requests.RequestException, ValueError) as exc:
-        log(f"WARNING: could not reach ShadowGuard ingest ({type(exc).__name__}); "
+        log.warning(f"could not reach ShadowGuard ingest ({type(exc).__name__}); "
             f"forwarding {path} from {source} anyway")
 
 
 class RelayHandler(BaseHTTPRequestHandler):
+    """Observe-only HTTP handler: report scanned requests, then forward everything."""
     protocol_version = "HTTP/1.1"
     server_version = "ShadowGuardRelay"
 
     def log_message(self, format, *args):  # request lines only (method, path, status)
-        log(f"{self.command} {self.path.split('?')[0]} -> {args[1] if len(args) > 1 else '?'}")
+        """Log the request line only (method, path, status), never the body."""
+        log.info(f"{self.command} {self.path.split('?')[0]} -> {args[1] if len(args) > 1 else '?'}")
 
     def read_body(self) -> bytes:
+        """Read the request body (Content-Length or chunked)."""
         if "chunked" in self.headers.get("Transfer-Encoding", "").lower():
             chunks = []
             while True:
@@ -121,6 +125,7 @@ class RelayHandler(BaseHTTPRequestHandler):
         return self.rfile.read(length) if length else b""
 
     def send_json(self, status: int, payload: dict) -> None:
+        """Send a small JSON response and close the connection."""
         data = json.dumps(payload).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
@@ -131,6 +136,7 @@ class RelayHandler(BaseHTTPRequestHandler):
         self.close_connection = True
 
     def handle_any(self) -> None:
+        """Report scanned paths to ShadowGuard, then forward to Ollama and stream back."""
         body = self.read_body()
         path = self.path.split("?")[0]
         scanned = self.command == "POST" and path in SCANNED_PATHS
@@ -189,14 +195,16 @@ class RelayHandler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
+    """Run the relay until Ctrl+C."""
+    setup_logging()
     server = ThreadingHTTPServer((HOST, PORT), RelayHandler)
     server.daemon_threads = True
-    log(f"Local LLM Guard listening on http://{HOST}:{PORT} -> Ollama at {UPSTREAM.geturl()}")
-    log(f"Opt a client in with OLLAMA_HOST={HOST}:{PORT}. Observe only: nothing is blocked or modified.")
+    log.info(f"Local LLM Guard listening on http://{HOST}:{PORT} -> Ollama at {UPSTREAM.geturl()}")
+    log.info(f"Opt a client in with OLLAMA_HOST={HOST}:{PORT}. Observe only: nothing is blocked or modified.")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        log("stopped")
+        log.info("stopped")
 
 
 if __name__ == "__main__":

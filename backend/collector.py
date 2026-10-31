@@ -6,6 +6,7 @@ No SSL decryption, no packet inspection: inspects connection metadata only.
 Uses only psutil + Python standard library.
 """
 
+import logging
 import socket
 import threading
 import time
@@ -26,6 +27,8 @@ KNOWN_AI_HOSTS = [
     "api.featherless.ai",
 ]
 LOCAL_AI_PORTS = {11434, 1234}
+
+log = logging.getLogger("shadowguard.collector")
 
 # Dedicated AI hosts for forward IP resolution.
 # NOTE: generativelanguage.googleapis.com is strictly EXCLUDED from IP matching
@@ -126,7 +129,7 @@ def _collector_loop(
 ) -> None:
     """Collector loop running in a background daemon thread."""
     if psutil is None:
-        print("[collector] ERROR: psutil is not installed.")
+        log.error("psutil is not installed.")
         return
 
     seen_connections: set[tuple[int | None, str, int]] = set()
@@ -143,7 +146,7 @@ def _collector_loop(
             time.sleep(interval)
             continue
         except Exception as e:
-            print(f"[collector] Error fetching connections: {e}")
+            log.warning("Error fetching connections: %s", e)
             time.sleep(interval)
             continue
 
@@ -202,7 +205,7 @@ def _collector_loop(
             try:
                 ingest_fn([event])
             except Exception as e:
-                print(f"[collector] Error invoking ingest_fn: {e}")
+                log.warning("Error invoking ingest_fn: %s", e)
 
         if stop_event is not None:
             stop_event.wait(interval)
@@ -236,6 +239,9 @@ def start_collector(
 
 
 if __name__ == "__main__":
+    from logging_setup import setup_logging
+
+    setup_logging()
     print("=" * 70)
     print(" ShadowGuard AI - Passive Network Connection Collector")
     print(" Running standalone with ingest_fn=print for 60 seconds...")

@@ -6,9 +6,9 @@ so analyze_incident() always produces a result.
 """
 
 import json
+import logging
 import os
 import re
-import sys
 
 FEATHERLESS_BASE_URL = "https://api.featherless.ai/v1"
 TIMEOUT_SECONDS = 10  # stage safety: slower calls fall back to offline rules
@@ -63,10 +63,7 @@ _FILLER_STEPS = [
 ]
 
 
-def _log(message: str) -> None:
-    """Print without ever raising: a cp1252 Windows console can't encode "→"."""
-    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
-    print(message.encode(encoding, errors="backslashreplace").decode(encoding), flush=True)
+log = logging.getLogger("shadowguard.analyzer")
 
 
 def build_llm_input(incident: dict) -> dict:
@@ -225,15 +222,14 @@ def analyze_incident(incident: dict) -> dict:
     model = os.environ.get("FEATHERLESS_MODEL", "").strip()
 
     if not (api_key and model):
-        _log(f"[analyzer] Featherless not configured; using {OFFLINE_ENGINE}. "
-             f"Redacted input (nothing sent): {json.dumps(llm_input, ensure_ascii=False)}")
+        log.info("Featherless not configured; using %s. Redacted input (nothing sent): %s",
+                 OFFLINE_ENGINE, json.dumps(llm_input, ensure_ascii=False))
         return offline_analysis(llm_input)
 
-    _log(f"[analyzer] Sending to featherless:{model} (redacted fields only): "
-         f"{json.dumps(llm_input, ensure_ascii=False)}")
+    log.info("Sending to featherless:%s (redacted fields only): %s", model, json.dumps(llm_input, ensure_ascii=False))
     try:
         result = _call_featherless(llm_input, api_key, model)
     except Exception as exc:  # timeout, auth, network, bad model...
-        _log(f"[analyzer] Featherless call failed ({type(exc).__name__}: {exc}); using {OFFLINE_ENGINE}")
+        log.warning("Featherless call failed (%s: %s); using %s", type(exc).__name__, exc, OFFLINE_ENGINE)
         return offline_analysis(llm_input)
     return {**result, "engine": f"featherless:{model}"}

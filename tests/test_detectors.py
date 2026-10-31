@@ -23,6 +23,7 @@ PRIVATE_KEY = ("-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEAfakefakefakeFAK
 
 
 def b64url(obj) -> str:
+    """Base64url-encode JSON without padding, as in a JWT."""
     return base64.urlsafe_b64encode(json.dumps(obj).encode()).rstrip(b"=").decode()
 
 
@@ -41,6 +42,7 @@ _INV = [0, 4, 3, 2, 1, 5, 6, 7, 8, 9]
 
 
 def verhoeff_check_digit(base: str) -> str:
+    """Verhoeff check digit for a numeric string (independent of the code under test)."""
     c = 0
     for i, n in enumerate(reversed(base)):
         c = _D[c][_P[(i + 1) % 8][int(n)]]
@@ -53,6 +55,7 @@ fmt = lambda a: f"{a[:4]} {a[4:8]} {a[8:]}"  # noqa: E731
 
 
 def openai_body(content, extra_messages=()):
+    """An OpenAI chat request body with the given user message."""
     return json.dumps({"model": "gpt-4o", "messages": [*extra_messages, {"role": "user", "content": content}]})
 
 

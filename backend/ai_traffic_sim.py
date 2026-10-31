@@ -118,6 +118,7 @@ def run_simulation(hold_seconds: float = 10.0) -> None:
 
 
 def main() -> None:
+    """Open real connections to AI providers so the collector has traffic to detect."""
     run_simulation(hold_seconds=10.0)
 
 

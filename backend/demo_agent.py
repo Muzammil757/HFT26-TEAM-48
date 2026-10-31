@@ -119,6 +119,7 @@ def replay_chain(scenario_path: Path = DEFAULT_DATA_PATH, interval: float = 3.0)
 
 
 def main() -> None:
+    """Replay the agent-chain scenario against the local API, one event every few seconds."""
     scenario = DEFAULT_DATA_PATH
     if len(sys.argv) > 1:
         scenario = Path(sys.argv[1])

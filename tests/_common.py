@@ -24,10 +24,12 @@ class Checks:
         self.results: list[tuple[str, bool, str]] = []
 
     def check(self, name: str, ok, detail="") -> bool:
+        """Record one named check; returns whether it passed."""
         self.results.append((name, bool(ok), "" if ok else str(detail)))
         return bool(ok)
 
     def finish(self) -> None:
+        """Print the results and exit non-zero if any check failed."""
         print(f"== {self.title}")
         width = max((len(n) for n, _, _ in self.results), default=0)
         for name, ok, detail in self.results:

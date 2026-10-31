@@ -11,6 +11,7 @@ In both modes, if backend/static/index.html exists (the committed frontend build
 FastAPI serves the dashboard at "/" with an SPA fallback, next to /api/*.
 """
 
+import logging
 import os
 import threading
 import time
@@ -33,6 +34,8 @@ CAPPED_PATHS = ("/api/ingest", "/api/scan")
 READ_LIMIT_PER_MIN = 300
 WRITE_LIMIT_PER_MIN = 40
 
+log = logging.getLogger("shadowguard.deploy")
+
 
 def load_demo_scenarios(ingest: Callable[[list[Any]], dict]) -> None:
     """Fill the empty demo database with scenarios 01-04, 06 and 07 (fake data only)."""
@@ -43,10 +46,11 @@ def load_demo_scenarios(ingest: Callable[[list[Any]], dict]) -> None:
                  ("04", gen.generate_file_04), ("06", gen.generate_file_06), ("07", gen.generate_file_07)]
     for name, build in scenarios:
         result = ingest(build(base))
-        print(f"[deploy] scenario {name}: processed {result['processed']}, incidents {result['incidents']}")
+        log.info("scenario %s: processed %s, incidents %s", name, result["processed"], result["incidents"])
 
 
 def reset_database(db_path: Path) -> None:
+    """Delete the demo database (and journal) so the public demo starts fresh."""
     for path in (db_path, db_path.with_name(db_path.name + "-journal")):
         path.unlink(missing_ok=True)
 
@@ -86,6 +90,7 @@ def install_public_safety(app: FastAPI) -> None:
 
     @app.middleware("http")
     async def public_demo_guard(request: Request, call_next):
+        """Reject over-limit clients and oversized bodies before the route runs."""
         path = request.url.path
         if path.startswith("/api/"):
             write = request.method not in ("GET", "HEAD", "OPTIONS")
@@ -116,6 +121,7 @@ def mount_frontend(app: FastAPI) -> bool:
 
     @app.get("/{full_path:path}", include_in_schema=False)
     def spa(full_path: str):
+        """Serve a built file if it exists, else index.html for client-side routes."""
         if full_path == "api" or full_path.startswith("api/"):
             return JSONResponse({"detail": "Not Found"}, status_code=404)
         candidate = (root / full_path).resolve()

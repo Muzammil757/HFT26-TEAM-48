@@ -8,7 +8,6 @@ Uses standard library only.
 import base64
 import json
 import random
-import string
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -103,6 +102,7 @@ def build_jwt(payload: dict | None = None) -> str:
         }
 
     def b64url(data: bytes) -> str:
+        """Base64url-encode without padding, as in a JWT."""
         return base64.urlsafe_b64encode(data).decode("utf-8").rstrip("=")
 
     header_b64 = b64url(json.dumps(header, separators=(",", ":")).encode("utf-8"))
@@ -761,6 +761,7 @@ def generate_file_07(base_time: datetime) -> list[dict]:
        ai_request to OpenAI -> no incident.
     """
     def ts(seconds: int) -> str:
+        """ISO timestamp `seconds` after the scenario's base time."""
         return (base_time + timedelta(seconds=seconds)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     # Obviously fake key material (not a real key).
@@ -854,6 +855,7 @@ def write_jsonl_file(filepath: Path, events: list[dict]) -> int:
 
 def main() -> None:
     # Target directory is ../demo_data relative to this script's directory
+    """Generate every scenario file into demo_data/ and validate each line."""
     script_dir = Path(__file__).resolve().parent
     demo_dir = (script_dir.parent / "demo_data").resolve()
 

@@ -27,6 +27,7 @@ INGEST_URL = "http://127.0.0.1:8000/api/ingest"
 
 
 class ServerDown(Exception):
+    """Raised when the ShadowGuard API cannot be reached."""
     pass
 
 
@@ -111,6 +112,7 @@ def load_paths(args: list[str]) -> bool:
 
 
 def main() -> None:
+    """Load the given JSONL files (or folders) into the local API."""
     if len(sys.argv) < 2:
         sys.exit("Usage: python load_demo.py <file.jsonl | folder> [more ...]")
     sys.exit(0 if load_paths(sys.argv[1:]) else 1)

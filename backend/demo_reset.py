@@ -35,6 +35,7 @@ GENERATOR = Path(__file__).parent / "generate_data.py"
 
 
 def server_up() -> bool:
+    """True if the ShadowGuard API answers on 127.0.0.1:8000."""
     try:
         requests.get(HEALTH_URL, timeout=2)
         return True
@@ -43,6 +44,7 @@ def server_up() -> bool:
 
 
 def resolve_files(numbers: list[str], data_dir: Path) -> list[Path]:
+    """Map scenario numbers (01, 02, ...) to their demo_data/*.jsonl files."""
     files = []
     for n in numbers:
         if not n.isdigit():
@@ -56,6 +58,7 @@ def resolve_files(numbers: list[str], data_dir: Path) -> list[Path]:
 
 
 def delete_db() -> None:
+    """Delete the local database and its journal; exit if the server still holds it."""
     removed = []
     for path in (DB_PATH, DB_PATH.with_name(DB_PATH.name + "-journal")):
         try:
@@ -69,6 +72,7 @@ def delete_db() -> None:
 
 
 def main() -> None:
+    """Parse arguments, optionally regenerate data, reset the database and load scenarios."""
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--load", nargs="+", metavar="NN", help="scenario numbers to load, e.g. 01 02 03 04 06 07")
     parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR, help="folder with 0N_*.jsonl files")

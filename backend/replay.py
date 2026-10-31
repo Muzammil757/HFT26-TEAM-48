@@ -7,6 +7,7 @@ All values in the scenario are fake.
 """
 
 import json
+import logging
 import threading
 import time
 import uuid
@@ -18,11 +19,14 @@ SCENARIO = Path(__file__).resolve().parent.parent / "demo_data" / "05_agent_chai
 INTERVAL_SECONDS = 3
 COOLDOWN_SECONDS = 20
 
+log = logging.getLogger("shadowguard.replay")
+
 _lock = threading.Lock()
 _last_start = 0.0
 
 
 class ReplayCooldown(Exception):
+    """Raised when a replay is requested within the cooldown window."""
     def __init__(self, retry_after: int):
         super().__init__(f"A replay was started recently; try again in {retry_after} s")
         self.retry_after = retry_after
@@ -48,6 +52,7 @@ def start_replay(ingest: Callable[[list[Any]], dict]) -> dict:
         events.append({**event, "event_id": f"replay_{run}_{i:02d}", "session_id": session_id})
 
     def worker() -> None:
+        """Ingest the events one by one, INTERVAL_SECONDS apart, with fresh timestamps."""
         for i, event in enumerate(events):
             if i:
                 time.sleep(INTERVAL_SECONDS)
@@ -55,11 +60,11 @@ def start_replay(ingest: Callable[[list[Any]], dict]) -> dict:
             try:
                 ingest([event])
             except Exception as exc:  # keep going; the next step may still succeed
-                print(f"[replay] {session_id}: step {i + 1} failed: {type(exc).__name__}")
-        print(f"[replay] {session_id}: finished ({len(events)} events)")
+                log.warning("%s: step %d failed: %s", session_id, i + 1, type(exc).__name__)
+        log.info("%s: finished (%d events)", session_id, len(events))
 
     threading.Thread(target=worker, name=f"replay-{run}", daemon=True).start()
-    print(f"[replay] {session_id}: started ({len(events)} events, {INTERVAL_SECONDS} s apart)")
+    log.info("%s: started (%d events, %d s apart)", session_id, len(events), INTERVAL_SECONDS)
     return {
         "status": "started",
         "session_id": session_id,

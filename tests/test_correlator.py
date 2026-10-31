@@ -19,11 +19,13 @@ CHAIN = "Exfiltration chain (sensitive read → credential sent within 60s)"
 
 
 def ev(eid, t, etype, dest=None, provider=None, sanctioned=None, session="s1", source="autogpt", pid=7):
+    """Build a RawEvent with provider/sanctioned already set."""
     return RawEvent(event_id=eid, timestamp=f"2026-10-30T10:{t}Z", source=source, event_type=etype, pid=pid,
                     destination=dest, payload_visible=False, session_id=session, provider=provider, sanctioned=sanctioned)
 
 
 def pii(rule):
+    """A redacted PII finding for the given rule."""
     return {"category": "PII", "rule": rule, "redacted_evidence": "XXXX", "start": None, "end": None, "fingerprint": "f"}
 
 

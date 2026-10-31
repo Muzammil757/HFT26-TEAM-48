@@ -1,6 +1,7 @@
 """ShadowGuard AI backend API."""
 
 import json
+import logging
 import os
 import sys
 import threading
@@ -35,6 +36,14 @@ def load_env_file(path: Path) -> None:
 
 load_env_file(Path(__file__).parent / ".env")
 
+from logging_setup import setup_logging  # noqa: E402
+
+setup_logging()
+log_ingest = logging.getLogger("shadowguard.ingest")
+log_collector = logging.getLogger("shadowguard.collector")
+log_analyze = logging.getLogger("shadowguard.analyze")
+log_deploy = logging.getLogger("shadowguard.deploy")
+
 from analyzer import analyze_incident, build_llm_input, offline_analysis  # noqa: E402
 import replay  # noqa: E402
 from correlator import correlate_events  # noqa: E402
@@ -67,12 +76,13 @@ _collector_thread: threading.Thread | None = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Start-up and shutdown: database, demo data (deploy mode) and the live collector."""
     global _collector_thread
     if DEPLOY_MODE:
         reset_database(DB_PATH)  # every start of the public demo begins from a fresh database
     init_db()
     if DEPLOY_MODE:
-        print("[deploy] DEPLOY_MODE=1: public demo, collector off, loading scenarios 01-04, 06, 07")
+        log_deploy.info("DEPLOY_MODE=1: public demo, collector off, loading scenarios 01-04, 06, 07")
         load_demo_scenarios(process_events)
     if os.environ.get("SEED_MOCK") == "1":
         seed_from_file(MOCK_DATA)  # no-op once the DB has data
@@ -80,7 +90,7 @@ async def lifespan(app: FastAPI):
     collector_stop = threading.Event()
     collector_thread = None
     if DEPLOY_MODE:
-        print("[collector] Disabled in DEPLOY_MODE (a public server has no endpoint to watch)")
+        log_collector.info("Disabled in DEPLOY_MODE (a public server has no endpoint to watch)")
     elif os.environ.get("COLLECTOR_ENABLED", "1") != "0":
         try:
             from collector import start_collector
@@ -91,18 +101,21 @@ async def lifespan(app: FastAPI):
                 stop_event=collector_stop,
             )
             _collector_thread = collector_thread
-            print("[collector] Live connection collector started (COLLECTOR_ENABLED=0 to disable)")
+            log_collector.info("Live connection collector started (COLLECTOR_ENABLED=0 to disable)")
         except Exception as exc:  # never block startup on the collector
-            print(f"[collector] Not started: {type(exc).__name__}: {exc}")
+            log_collector.warning("Not started: %s: %s", type(exc).__name__, exc)
     else:
-        print("[collector] Disabled by COLLECTOR_ENABLED=0")
+        log_collector.info("Disabled by COLLECTOR_ENABLED=0")
 
     yield
 
     if collector_thread is not None:
         collector_stop.set()
         collector_thread.join(timeout=5)
-        print("[collector] Stopped" if not collector_thread.is_alive() else "[collector] Did not stop within 5s")
+        if collector_thread.is_alive():
+            log_collector.warning("Did not stop within 5s")
+        else:
+            log_collector.info("Stopped")
 
 
 app = FastAPI(title="ShadowGuard AI", version="0.1.0", lifespan=lifespan)
@@ -119,11 +132,13 @@ if DEPLOY_MODE:
 
 @app.get("/api/incidents", response_model=list[Incident])
 def get_incidents() -> list[Incident]:
+    """All incidents, newest first."""
     return fetch_incidents()
 
 
 @app.get("/api/incidents/{incident_id}", response_model=IncidentDetail)
 def get_incident(incident_id: str) -> IncidentDetail:
+    """One incident with its trigger events (metadata only)."""
     incident = fetch_incident(incident_id)
     if incident is None:
         raise HTTPException(status_code=404, detail=f"Incident {incident_id} not found")
@@ -141,23 +156,24 @@ def analyze(incident_id: str) -> Incident:
     if incident is None:
         raise HTTPException(status_code=404, detail=f"Incident {incident_id} not found")
     if incident.ai_analysis:
-        print(f"[analyze] {incident_id}: returning cached ai_analysis")
+        log_analyze.info("%s: returning cached ai_analysis", incident_id)
         return incident
 
     incident_dict = incident.model_dump(mode="json", exclude={"events"})
     try:
         result = analyze_incident(incident_dict)
     except Exception as exc:  # analyzer already falls back; this is a last-resort guard
-        print(f"[analyze] analyzer raised {type(exc).__name__}: {exc}; using offline rules")
+        log_analyze.warning("analyzer raised %s: %s; using offline rules", type(exc).__name__, exc)
         result = offline_analysis(build_llm_input(incident_dict))
     incident.ai_analysis = json.dumps(result, ensure_ascii=False)
     set_ai_analysis(incident_id, incident.ai_analysis)
-    print(f"[analyze] {incident_id}: stored ai_analysis from {result.get('engine')}")
+    log_analyze.info("%s: stored ai_analysis from %s", incident_id, result.get("engine"))
     return incident
 
 
 @app.get("/api/stats")
 def get_stats() -> dict:
+    """Dashboard statistics: totals, providers, inventory and timeline."""
     return fetch_stats()
 
 
@@ -218,6 +234,7 @@ def replay_agent() -> JSONResponse:
 
 @app.post("/api/ingest")
 def ingest(events: list[Any] = Body(...)) -> dict:
+    """Classify, scan, redact, store and correlate a batch of raw events."""
     return process_events(events)
 
 
@@ -241,7 +258,7 @@ def process_events(events: list[Any], origin: str = "api") -> dict:
 
 
 def _process_events(events: list[Any], origin: str) -> dict:
-    print(f"[ingest] Received {len(events)} events" + (f" from {origin}" if origin != "api" else ""))
+    log_ingest.info("Received %d events%s", len(events), f" from {origin}" if origin != "api" else "")
 
     skipped = 0
     processed = 0
@@ -250,7 +267,7 @@ def _process_events(events: list[Any], origin: str) -> dict:
         event, reason = validate_event(raw)
         if event is None:
             event_id = raw.get("event_id") if isinstance(raw, dict) else None
-            print(f"[ingest] WARNING skipped event #{i} ({event_id}): {reason}")
+            log_ingest.warning("skipped event #%d (%s): %s", i, event_id, reason)
             skipped += 1
             continue
         try:
@@ -264,10 +281,10 @@ def _process_events(events: list[Any], origin: str) -> dict:
             insert_event(event, findings)  # metadata + redacted findings only, payload NOT stored
             if origin == "collector":
                 status = "approved" if event.sanctioned else "SHADOW" if event.provider else "not AI"
-                print(f"[collector] {event.source} (pid {event.pid}) -> {event.destination}:{event.dst_port}"
-                      f" = {event.provider or '-'} [{status}]")
+                log_collector.info("%s (pid %s) -> %s:%s = %s [%s]", event.source, event.pid,
+                                   event.destination, event.dst_port, event.provider or "-", status)
         except Exception as exc:
-            print(f"[ingest] WARNING skipped event {event.event_id}: {type(exc).__name__}: {exc}")
+            log_ingest.warning("skipped event %s: %s: %s", event.event_id, type(exc).__name__, exc)
             skipped += 1
             continue
         processed += 1
@@ -282,9 +299,9 @@ def _process_events(events: list[Any], origin: str) -> dict:
             for incident in correlate_events(session_events, findings_by_event):
                 incident_ids.append(upsert_incident(incident, key))
         except Exception as exc:  # one bad session must not lose the rest of the batch
-            print(f"[ingest] WARNING correlation failed for session {key}: {type(exc).__name__}: {exc}")
-    print(f"[ingest] Saved {len(incident_ids)} incidents across {len(touched_sessions)} sessions"
-          + (f", skipped {skipped} events" if skipped else ""))
+            log_ingest.warning("correlation failed for session %s: %s: %s", key, type(exc).__name__, exc)
+    log_ingest.info("Saved %d incidents across %d sessions%s", len(incident_ids), len(touched_sessions),
+                    f", skipped {skipped} events" if skipped else "")
 
     return {"status": "success", "processed": processed, "incidents": len(incident_ids),
             "skipped": skipped}

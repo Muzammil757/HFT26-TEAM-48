@@ -38,6 +38,7 @@ PROMPTS = [
 
 
 def main() -> None:
+    """Send the clean and the leaking prompt through the relay and print the responses."""
     print(f"Sending {len(PROMPTS)} prompts through {RELAY_URL}/api/generate (model {MODEL})\n")
     for label, prompt in PROMPTS:
         try:

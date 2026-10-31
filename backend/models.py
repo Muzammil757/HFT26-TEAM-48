@@ -1,6 +1,7 @@
 """Pydantic schemas and SQLite persistence for ShadowGuard AI (contracts: docs/development/original-spec.md Section 6)."""
 
 import json
+import logging
 import os
 import sqlite3
 from collections.abc import Iterator
@@ -14,6 +15,8 @@ from pydantic import BaseModel, Field, ValidationError
 # own file and can never touch a local install's data.
 _DEPLOY = os.environ.get("DEPLOY_MODE", "").strip().lower() in ("1", "true", "yes", "on")
 DB_PATH = Path(__file__).parent / ("shadowguard_demo.db" if _DEPLOY else "shadowguard.db")
+
+log = logging.getLogger("shadowguard.models")
 
 
 # ---------------------------------------------------------------------------
@@ -66,6 +69,7 @@ def validate_event(raw: object) -> tuple[RawEvent | None, str | None]:
 
 
 class Finding(BaseModel):
+    """A redacted finding as stored with an incident (no raw value, no offsets)."""
     category: str
     rule: str
     redacted_evidence: str
@@ -74,6 +78,7 @@ class Finding(BaseModel):
 
 
 class Incident(BaseModel):
+    """A correlated, scored session (Section 6.3 contract)."""
     incident_id: str
     timestamp: datetime
     risk_score: int = Field(ge=0, le=10)
@@ -102,6 +107,7 @@ class EventSummary(BaseModel):
 
 
 class IncidentDetail(Incident):
+    """An incident plus the metadata of its trigger events."""
     events: list[EventSummary]
 
 
@@ -591,5 +597,5 @@ def seed_from_file(json_path: Path, db_path: Path = DB_PATH) -> int:
             insert_incident(Incident.model_validate(item), db_path=db_path)
             inserted += 1
         except ValidationError as exc:
-            print(f"[seed] Skipping {item.get('incident_id')}: {exc.error_count()} contract errors")
+            log.warning("seed: skipping %s: %d contract errors", item.get("incident_id"), exc.error_count())
     return inserted
