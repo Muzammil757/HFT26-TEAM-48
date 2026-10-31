@@ -1,6 +1,7 @@
 """Pydantic schemas and SQLite persistence for ShadowGuard AI (contracts: CLAUDE.md Section 6)."""
 
 import json
+import os
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -9,7 +10,10 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field, ValidationError
 
-DB_PATH = Path(__file__).parent / "shadowguard.db"
+# The public demo (DEPLOY_MODE=1) recreates its database on every start, so it uses its
+# own file and can never touch a local install's data.
+_DEPLOY = os.environ.get("DEPLOY_MODE", "").strip().lower() in ("1", "true", "yes", "on")
+DB_PATH = Path(__file__).parent / ("shadowguard_demo.db" if _DEPLOY else "shadowguard.db")
 
 
 # ---------------------------------------------------------------------------

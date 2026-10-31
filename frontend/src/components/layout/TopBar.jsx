@@ -1,8 +1,29 @@
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { ChevronRight, MonitorDot, RotateCw } from "lucide-react";
-import { refreshAll, useBackendOffline, useLastRefreshed } from "../../hooks/usePolling.js";
+import { ChevronRight, Globe, MonitorDot, RotateCw } from "lucide-react";
+import { getHealth } from "../../api.js";
+import usePolling, { refreshAll, useBackendOffline, useLastRefreshed } from "../../hooks/usePolling.js";
 import { formatTime, shortId } from "../../lib/format.js";
+
+/** Where this instance runs: the local endpoint (127.0.0.1) or the public demo deployment. */
+function ModeChip() {
+  const { data: health } = usePolling(getHealth, 3000, "health");
+  const chip = "inline-flex h-7 items-center gap-1.5 rounded-md border border-line bg-sunken px-2 text-xs text-muted";
+  if (health?.mode === "deploy") {
+    return (
+      <span title="Public demo deployment with synthetic data; production runs locally on each endpoint" className={chip}>
+        <Globe size={13} />
+        <span className="text-fg">Public demo</span>
+      </span>
+    );
+  }
+  return (
+    <span title="ShadowGuard runs locally and only listens on 127.0.0.1" className={chip}>
+      <MonitorDot size={13} />
+      Local <span className="mono text-fg">127.0.0.1</span>
+    </span>
+  );
+}
 
 function crumbsFor(pathname) {
   if (pathname.startsWith("/incidents/")) {
@@ -68,13 +89,7 @@ export default function TopBar() {
       </nav>
 
       <div className="flex shrink-0 items-center gap-2">
-        <span
-          title="ShadowGuard runs locally and only listens on 127.0.0.1"
-          className="inline-flex h-7 items-center gap-1.5 rounded-md border border-line bg-sunken px-2 text-xs text-muted"
-        >
-          <MonitorDot size={13} />
-          Local <span className="mono text-fg">127.0.0.1</span>
-        </span>
+        <ModeChip />
         <ApiStatus />
         <span className="hidden whitespace-nowrap px-1 text-xs text-muted lg:inline">
           Last refreshed <span className="mono text-fg">{lastRefreshed ? formatTime(lastRefreshed) : "—"}</span>

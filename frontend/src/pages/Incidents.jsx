@@ -6,6 +6,7 @@ import IncidentsTable from "../components/incidents/IncidentsTable.jsx";
 import Card from "../components/ui/Card.jsx";
 import { ClearFiltersButton, SearchInput, Segmented, SelectFilter, Toolbar } from "../components/ui/Controls.jsx";
 import { PageHeader, PageShell } from "../components/ui/Page.jsx";
+import { ReplayBanner, ReplayButton, useReplayAgent } from "../components/demo/ReplayAgent.jsx";
 import { EmptyState, TableSkeleton } from "../components/ui/States.jsx";
 import useHighlights from "../hooks/useHighlights.js";
 import usePolling from "../hooks/usePolling.js";
@@ -65,6 +66,7 @@ function useIncidentFilters() {
 export default function Incidents() {
   const { data: incidents, error } = usePolling(getIncidents, 3000, "incidents");
   const { filters, update, clear, active, search } = useIncidentFilters();
+  const replay = useReplayAgent();
 
   // Remember the query for the detail page's "Back to incidents" link.
   useEffect(() => {
@@ -116,7 +118,8 @@ export default function Incidents() {
         title="Incidents"
         subtitle="Investigate suspicious AI usage and potential data-exfiltration activity."
         actions={
-          incidents != null && (
+          <>
+          {incidents != null && (
             <div className="flex items-center gap-1.5" role="group" aria-label="Filter by severity">
               {SEVERITIES.map((sev) => {
                 const s = severityOf(sev);
@@ -138,9 +141,12 @@ export default function Incidents() {
                 );
               })}
             </div>
-          )
+          )}
+          <ReplayButton replay={replay} />
+          </>
         }
       />
+      <ReplayBanner replay={replay} />
 
       <Card
         title="Incident queue"

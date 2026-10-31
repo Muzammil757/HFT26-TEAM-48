@@ -9,6 +9,7 @@ import ProviderUsageCard, { providerRows } from "../components/overview/Provider
 import Card from "../components/ui/Card.jsx";
 import CountUp from "../components/ui/CountUp.jsx";
 import { PageHeader, PageShell } from "../components/ui/Page.jsx";
+import { ReplayBanner, ReplayButton, useReplayAgent } from "../components/demo/ReplayAgent.jsx";
 import { EmptyState, Skeleton, TableSkeleton } from "../components/ui/States.jsx";
 import useHighlights from "../hooks/useHighlights.js";
 import usePolling from "../hooks/usePolling.js";
@@ -36,6 +37,7 @@ function TimelineLegend({ data }) {
 export default function Overview() {
   const { data: stats, error: statsError } = usePolling(getStats, 3000, "stats");
   const { data: incidentsData, error: incidentsError } = usePolling(getIncidents, 3000, "incidents");
+  const replay = useReplayAgent();
 
   const state = stats != null ? "ready" : statsError ? "unavailable" : "loading";
   const timeline = useMemo(() => buildTimeline(stats?.timeline), [stats]);
@@ -67,7 +69,9 @@ export default function Overview() {
       <PageHeader
         title="Security Overview"
         subtitle="Monitor AI usage, identify shadow AI activity and investigate potential data exposure."
+        actions={<ReplayButton replay={replay} />}
       />
+      <ReplayBanner replay={replay} />
 
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         <KpiCard

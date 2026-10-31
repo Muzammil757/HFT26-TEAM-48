@@ -59,9 +59,17 @@ Employees and developers are rapidly adopting local LLMs, browser AI extensions 
 | — | No SSL decryption | Encrypted cloud traffic is seen as metadata only; payloads are read only where plaintext already exists (localhost HTTP to Ollama, exported request logs). |
 | — | Featherless (sponsor) | `backend/analyzer.py`: *Generate AI Analysis* sends **redacted fields only** to a Featherless model and returns a summary and remediation checklist; offline rule engine as fallback. |
 
-## 🎥 Demo Video
+## 🌐 Live demo
 
-Demo video: VIDEO_LINK_TBD
+**Live demo: DEMO_URL_TBD**
+
+One URL serves the dashboard and the API, running in public-demo mode (`DEPLOY_MODE=1`) with synthetic data only. In production, ShadowGuard runs locally on each endpoint. On the free host, the first request after 15 idle minutes takes about a minute while the service wakes up.
+
+- **Replay agent attack.** Click the button on *Security Overview* or *Incidents*. A fake `autogpt` agent reads `.env`, runs `cat ~/.aws/credentials` and sends an AWS key to OpenAI, one step every 3 s under a new session. Watch the banner and toasts as the score climbs 3 → 6 → 10, then click **View incident** for the score breakdown and chain timeline. One replay runs at a time (20 s cooldown).
+- **Live Test Console.** Open *Live Test Console*, pick a destination in the composer (e.g. *Ollama · Shadow*) and click a starter, such as **AWS key**. ShadowGuard shows what it intercepted, the masked message and the incident (AWS key → Ollama = 6/10 high). Use fake data only.
+- **Generate AI Analysis** on an incident gives a summary and remediation checklist from redacted fields only (Featherless if configured, otherwise the offline rules).
+
+Hosting setup: [docs/DEPLOY.md](docs/DEPLOY.md) (Render free tier, `render.yaml` Blueprint).
 
 ---
 
@@ -90,8 +98,8 @@ Also: explainable 0–10 risk scores with a factor-by-factor breakdown, validato
 | ![Incidents](docs/screenshots/incidents.png) | ![Critical toast](docs/screenshots/toast_critical.png) |
 | **Incident detail: score 10, chain timeline, AI analysis** | **Backend offline** |
 | ![Incident detail](docs/screenshots/detail_score10.png) | ![Offline](docs/screenshots/offline.png) |
-| **Live Test Console: scan a prompt, then see the incident it raises** | |
-| ![Live Test Console](docs/screenshots/test_console.png) | |
+| **Live Test Console: scan a prompt, then see the incident it raises** | **Public demo: Replay agent attack builds a 10/10 chain** |
+| ![Live Test Console](docs/screenshots/test_console.png) | ![Replay agent attack](docs/screenshots/replay_agent.png) |
 
 ## Architecture
 
@@ -194,6 +202,8 @@ npm run dev                     # http://127.0.0.1:5173
 | `SEED_MOCK` | unset | Set to `1` to seed `frontend/src/mocks/mock_incidents.json` into an empty database. |
 | `FINGERPRINT_KEY` | unset | Secret for keyed fingerprints. If unset, a random key is generated once into `backend/.fingerprint_key` (git-ignored). |
 | `DEV_RELOAD` | unset | Set to `1` for Uvicorn auto-reload during development. Off by default because on Windows a reload can leave an old worker serving stale code. |
+| `DEPLOY_MODE` | unset | Set to `1` for the public demo: binds `0.0.0.0:$PORT`, collector off, relay not started, fresh demo database with scenarios 01–04, 06, 07, 100 KB body cap and per-IP rate limit. See [docs/DEPLOY.md](docs/DEPLOY.md). |
+| `PORT` | `10000` | Listening port in `DEPLOY_MODE` (set by the host). |
 
 PowerShell: `$env:COLLECTOR_ENABLED="0"; python main.py` · bash: `COLLECTOR_ENABLED=0 python main.py`
 
@@ -231,7 +241,9 @@ The windows keep running until you close them or run `stop_demo.ps1`.
 
 The servers bind to `127.0.0.1` on purpose. Use that address rather than `localhost`, which on some Windows machines resolves to IPv6 first.
 
-Then play the hero scenario live: `cd backend` and `python demo_agent.py`.
+Then play the hero scenario live: `cd backend` and `python demo_agent.py`, or click **Replay agent attack** on the Overview or Incidents page.
+
+The backend also serves the built dashboard itself at http://127.0.0.1:8000 (from `backend/static`, the committed output of `npm run build`), so one URL works without Node. That is how the public demo runs.
 
 ## Demo routine
 
@@ -318,7 +330,8 @@ Optional live traffic: `python ai_traffic_sim.py` opens real connections to Open
 | GET | `/api/incidents/{id}` | One incident plus its trigger `events` (metadata only). |
 | POST | `/api/incidents/{id}/analyze` | The incident with `ai_analysis` (cached after the first call). `404` if unknown. |
 | GET | `/api/stats` | Totals, incidents by severity, traffic by provider, the process→provider inventory, per-minute timeline. |
-| GET | `/api/health` | `{"status","db","analyzer","collector"}` with `analyzer` = `featherless:<model>` or `offline-rules`, `collector` = `on` or `off`. |
+| GET | `/api/health` | `{"status","db","analyzer","collector","mode"}` with `analyzer` = `featherless:<model>` or `offline-rules`, `collector` = `on` or `off`, `mode` = `local` or `deploy`. |
+| POST | `/api/demo/replay-agent` | Replays the scenario-05 agent attack (4 events, 3 s apart, new session each time) in the background. `202` with `session_id` and `event_ids`; `429` with `retry_after` within 20 s of the last replay. |
 | POST | `/api/scan` | Body `{"text": "..."}` (max 100 KB). `{"findings":[{"category","rule","redacted_evidence"}],"masked_text"}`. Raw text and values are never returned, logged or stored. Used by the Live Test Console. |
 
 Event types: `ai_request`, `connection`, `file_read`, `shell_exec`. Full contracts: Section 6 of `CLAUDE.md`.

@@ -1,0 +1,17 @@
+# Render Blueprint: ShadowGuard AI public demo (one URL: dashboard + API).
+# Free web service, Python only: the dashboard is the prebuilt backend/static.
+# No secrets here. Featherless is optional: add FEATHERLESS_API_KEY and
+# FEATHERLESS_MODEL in the service's Environment tab (see docs/DEPLOY.md);
+# without them "Generate AI Analysis" uses the built-in offline rules.
+services:
+  - type: web
+    name: shadowguard-ai
+    runtime: python
+    plan: free
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: cd backend && python main.py
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
+    envVars:
+      - key: DEPLOY_MODE
+        value: "1"

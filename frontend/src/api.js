@@ -2,7 +2,9 @@ import mockStats from "./mocks/mock_stats.json";
 import mockIncidents from "./mocks/mock_incidents.json";
 import mockIncidentDetail from "./mocks/mock_incident_detail.json";
 
-export const BASE_URL = "http://127.0.0.1:8000";
+// Dev server (npm run dev) talks to the local API; the production build is served by
+// FastAPI itself, so it calls the same origin.
+export const BASE_URL = import.meta.env.DEV ? "http://127.0.0.1:8000" : "";
 export const USE_MOCKS = false;
 
 async function request(path, options = {}) {
@@ -134,4 +136,13 @@ export async function ingestEvents(events) {
     method: "POST",
     body: JSON.stringify(events)
   });
+}
+
+// Replays the scenario-05 agent attack under a new session (one replay per 20 s).
+export async function replayAgentAttack() {
+  if (USE_MOCKS) {
+    return { status: "started", event_ids: [], interval_seconds: 3, cooldown_seconds: 20 };
+  }
+
+  return request("/api/demo/replay-agent", { method: "POST" });
 }

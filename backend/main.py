@@ -18,6 +18,7 @@ for _stream in (sys.stdout, sys.stderr):
 import uvicorn  # noqa: E402
 from fastapi import Body, FastAPI, HTTPException  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from fastapi.responses import JSONResponse  # noqa: E402
 
 
 def load_env_file(path: Path) -> None:
@@ -35,9 +36,12 @@ def load_env_file(path: Path) -> None:
 load_env_file(Path(__file__).parent / ".env")
 
 from analyzer import analyze_incident, build_llm_input, offline_analysis  # noqa: E402
+import replay  # noqa: E402
 from correlator import correlate_events  # noqa: E402
+from deploy import DEPLOY_MODE, install_public_safety, load_demo_scenarios, mount_frontend, reset_database  # noqa: E402
 from detectors import MAX_SCAN_CHARS, mask_secrets, scan_payload  # noqa: E402
 from models import (  # noqa: E402
+    DB_PATH,
     Incident,
     IncidentDetail,
     fetch_incident,
@@ -64,13 +68,20 @@ _collector_thread: threading.Thread | None = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _collector_thread
+    if DEPLOY_MODE:
+        reset_database(DB_PATH)  # every start of the public demo begins from a fresh database
     init_db()
+    if DEPLOY_MODE:
+        print("[deploy] DEPLOY_MODE=1: public demo, collector off, loading scenarios 01-04, 06, 07")
+        load_demo_scenarios(process_events)
     if os.environ.get("SEED_MOCK") == "1":
         seed_from_file(MOCK_DATA)  # no-op once the DB has data
 
     collector_stop = threading.Event()
     collector_thread = None
-    if os.environ.get("COLLECTOR_ENABLED", "1") != "0":
+    if DEPLOY_MODE:
+        print("[collector] Disabled in DEPLOY_MODE (a public server has no endpoint to watch)")
+    elif os.environ.get("COLLECTOR_ENABLED", "1") != "0":
         try:
             from collector import start_collector
 
@@ -102,6 +113,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+if DEPLOY_MODE:
+    install_public_safety(app)
 
 
 @app.get("/api/incidents", response_model=list[Incident])
@@ -189,7 +202,18 @@ def health() -> dict:
         "db": db_ok,
         "analyzer": f"featherless:{model}" if configured else "offline-rules",
         "collector": "on" if _collector_thread is not None and _collector_thread.is_alive() else "off",
+        "mode": "deploy" if DEPLOY_MODE else "local",
     }
+
+
+@app.post("/api/demo/replay-agent")
+def replay_agent() -> JSONResponse:
+    """Replay the scenario-05 agent attack live under a new session (one replay per 20 s)."""
+    try:
+        return JSONResponse(replay.start_replay(process_events), status_code=202)
+    except replay.ReplayCooldown as exc:
+        return JSONResponse({"detail": str(exc), "retry_after": exc.retry_after}, status_code=429,
+                            headers={"Retry-After": str(exc.retry_after)})
 
 
 @app.post("/api/ingest")
@@ -266,12 +290,17 @@ def _process_events(events: list[Any], origin: str) -> dict:
             "skipped": skipped}
 
 
+# Built dashboard at "/" (after every /api route, so the SPA fallback never shadows the API).
+mount_frontend(app)
+
+
 if __name__ == "__main__":
     # Auto-reload is off by default: on Windows a reload can leave the old worker
     # serving stale code. Opt in for development with DEV_RELOAD=1.
+    # DEPLOY_MODE (public demo host): all interfaces on the host's $PORT, never reload.
     uvicorn.run(
         "main:app",
-        host="127.0.0.1",
-        port=8000,
-        reload=os.environ.get("DEV_RELOAD") == "1",
+        host="0.0.0.0" if DEPLOY_MODE else "127.0.0.1",
+        port=int(os.environ.get("PORT", "10000")) if DEPLOY_MODE else 8000,
+        reload=os.environ.get("DEV_RELOAD") == "1" and not DEPLOY_MODE,
     )
