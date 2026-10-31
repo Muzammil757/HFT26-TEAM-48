@@ -12,6 +12,7 @@ function crumbsFor(pathname) {
   if (pathname.startsWith("/incidents")) return [{ label: "Incidents" }];
   if (pathname.startsWith("/inventory")) return [{ label: "AI Inventory" }];
   if (pathname.startsWith("/test-console")) return [{ label: "Live Test Console" }];
+  if (pathname.startsWith("/how-it-works")) return [{ label: "How it works" }];
   return [{ label: "Security Overview" }];
 }
 

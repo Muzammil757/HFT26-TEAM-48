@@ -1,5 +1,5 @@
 import { NavLink, useLocation } from "react-router-dom";
-import { Boxes, FlaskConical, LayoutDashboard, Siren } from "lucide-react";
+import { Boxes, FlaskConical, LayoutDashboard, Siren, Workflow } from "lucide-react";
 import { getIncidents } from "../../api.js";
 import usePolling from "../../hooks/usePolling.js";
 import BrandMark from "./BrandMark.jsx";
@@ -10,6 +10,7 @@ const navigation = [
   { label: "AI Inventory", to: "/inventory", icon: Boxes, end: false },
   { label: "Incidents", to: "/incidents", icon: Siren, end: false, count: true },
   { label: "Live Test Console", to: "/test-console", icon: FlaskConical, end: false },
+  { label: "How it works", to: "/how-it-works", icon: Workflow, end: false },
 ];
 
 // The Incidents link returns to the filters last used there (kept by the Incidents page).
