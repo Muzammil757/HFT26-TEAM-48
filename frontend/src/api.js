@@ -113,3 +113,25 @@ export async function analyzeIncident(id) {
     }
   );
 }
+// Live Test Console: scan text (redacted results only) and ingest simulated events.
+export async function scanText(text) {
+  if (USE_MOCKS) {
+    return { findings: [], masked_text: text };
+  }
+
+  return request("/api/scan", {
+    method: "POST",
+    body: JSON.stringify({ text })
+  });
+}
+
+export async function ingestEvents(events) {
+  if (USE_MOCKS) {
+    return { status: "success", processed: events.length, incidents: 0 };
+  }
+
+  return request("/api/ingest", {
+    method: "POST",
+    body: JSON.stringify(events)
+  });
+}

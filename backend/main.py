@@ -36,7 +36,7 @@ load_env_file(Path(__file__).parent / ".env")
 
 from analyzer import analyze_incident, build_llm_input, offline_analysis  # noqa: E402
 from correlator import correlate_events  # noqa: E402
-from detectors import mask_secrets, scan_payload  # noqa: E402
+from detectors import MAX_SCAN_CHARS, mask_secrets, scan_payload  # noqa: E402
 from models import (  # noqa: E402
     Incident,
     IncidentDetail,
@@ -146,6 +146,31 @@ def analyze(incident_id: str) -> Incident:
 @app.get("/api/stats")
 def get_stats() -> dict:
     return fetch_stats()
+
+
+@app.post("/api/scan")
+def scan(body: dict = Body(...)) -> dict:
+    """Scan text with the detection engine and return redacted results only.
+
+    Used by the Live Test Console. Nothing is stored or logged, and neither the
+    raw text nor any raw matched value is returned: findings carry only
+    category, rule and redacted evidence, and the text comes back masked.
+    Validated by hand so an error response can never echo the input.
+    """
+    text = body.get("text") if isinstance(body, dict) else None
+    if not isinstance(text, str):
+        raise HTTPException(status_code=400, detail='Expected a JSON body {"text": "<string>"}')
+    if len(text) > MAX_SCAN_CHARS:
+        # Beyond this the scanner stops looking, so the tail could leak unmasked.
+        raise HTTPException(status_code=413, detail=f"Text is longer than the {MAX_SCAN_CHARS // 1024} KB scan limit")
+    findings = scan_payload(text)
+    return {
+        "findings": [
+            {"category": f["category"], "rule": f["rule"], "redacted_evidence": f["redacted_evidence"]}
+            for f in findings
+        ],
+        "masked_text": mask_secrets(text, findings),
+    }
 
 
 @app.get("/api/health")

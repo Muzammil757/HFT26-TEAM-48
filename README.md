@@ -23,6 +23,8 @@ Also: explainable 0–10 risk scores with a factor-by-factor breakdown, validato
 | ![Incidents](docs/screenshots/incidents.png) | ![Critical toast](docs/screenshots/toast_critical.png) |
 | **Incident detail: score 10, chain timeline, AI analysis** | **Backend offline** |
 | ![Incident detail](docs/screenshots/detail_score10.png) | ![Offline](docs/screenshots/offline.png) |
+| **Live Test Console: scan a prompt, then see the incident it raises** | |
+| ![Live Test Console](docs/screenshots/test_console.png) | |
 
 ## Architecture
 
@@ -183,6 +185,17 @@ On stage:
 4. **Incident detail** — risk gauge 10/10, the score breakdown, and the chain timeline `.env` read → shell command → AWS key sent to OpenAI within seconds.
 5. **Analyze with AI** — Featherless returns a summary and a remediation checklist, from redacted data only.
 6. The false-positive bait file (UUIDs, git SHAs, MD5s, a base64 image, numbers that fail Luhn/Verhoeff) produced zero findings.
+7. **Live Test Console** — let a judge type a prompt (or click an example) and watch it get scanned, masked and scored live.
+
+### Live Test Console
+
+The **Live Test Console** page (`/test-console`) lets anyone try the detection pipeline with their own prompt:
+
+1. **Scan.** `POST /api/scan` runs the same detectors as ingest and shows the findings (category, rule, redacted evidence) and the masked text. Nothing is stored or logged.
+2. **Send.** The prompt is wrapped in a valid `ai_request` event for the chosen simulated destination (OpenAI approved; Ollama, Hugging Face, Anthropic shadow) and posted to the local `/api/ingest`, the same pipeline as real traffic.
+3. **Correlate.** The page shows the incident it produced (score, factors, link to the detail page), or explains why the session scored below 3.
+
+The request is **simulated**: it only reaches ShadowGuard's local ingest, never an AI provider. Use fake data only. The three example chips use documented fake values (`AKIAIOSFODNN7EXAMPLE`, the `4111 1111 1111 1111` test card, a Verhoeff-valid fake Aadhaar). Each send starts a new session unless *Keep same session* is ticked, so you can also demo an incident growing. Expected results: AWS key → Ollama scores 6 (high); the Aadhaar + card + email row → OpenAI scores 3 (medium, 3+ PII items); the harmless question raises nothing.
 
 Optional live traffic: `python ai_traffic_sim.py` opens real connections to OpenAI and Hugging Face for the collector to detect.
 
@@ -195,7 +208,8 @@ Optional live traffic: `python ai_traffic_sim.py` opens real connections to Open
 | GET | `/api/incidents/{id}` | One incident plus its trigger `events` (metadata only). |
 | POST | `/api/incidents/{id}/analyze` | The incident with `ai_analysis` (cached after the first call). `404` if unknown. |
 | GET | `/api/stats` | Totals, incidents by severity, traffic by provider, the process→provider inventory, per-minute timeline. |
-| GET | `/api/health` | `{"status","db","analyzer"}` with `analyzer` = `featherless:<model>` or `offline-rules`. |
+| GET | `/api/health` | `{"status","db","analyzer","collector"}` with `analyzer` = `featherless:<model>` or `offline-rules`, `collector` = `on` or `off`. |
+| POST | `/api/scan` | Body `{"text": "..."}` (max 100 KB). `{"findings":[{"category","rule","redacted_evidence"}],"masked_text"}`. Raw text and values are never returned, logged or stored. Used by the Live Test Console. |
 
 Event types: `ai_request`, `connection`, `file_read`, `shell_exec`. Full contracts: Section 6 of `CLAUDE.md`.
 
